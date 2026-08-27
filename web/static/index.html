@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gate Control</title>
+  <style>
+    :root {
+      --bg: #1a1a2e;
+      --surface: #16213e;
+      --green: #4ecca3;
+      --red: #e94560;
+      --text: #eaeaea;
+      --muted: #8892b0;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 480px;
+    }
+
+    header {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+    }
+
+    .status-card {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 24px;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .status-label {
+      font-size: 0.85rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+
+    .status-value {
+      font-size: 1.75rem;
+      font-weight: 700;
+    }
+
+    .status-value.open { color: var(--green); }
+    .status-value.closed { color: var(--red); }
+    .status-value.unknown { color: var(--muted); }
+
+    .anpr-meta {
+      margin-top: 16px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    .anpr-meta strong {
+      display: block;
+      color: var(--text);
+      font-size: 1rem;
+      margin-top: 4px;
+    }
+
+    .anpr-meta .ok { color: var(--green); }
+    .anpr-meta .bad { color: var(--red); }
+
+    .snapshot-wrap {
+      margin-top: 16px;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #0f3460;
+      min-height: 120px;
+      display: none;
+    }
+
+    .snapshot-wrap.visible { display: block; }
+
+    .snapshot-wrap img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 16px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .btn-open { background: var(--green); color: #111; }
+    .btn-close { background: var(--red); color: #fff; }
+    .btn-refresh { background: #0f3460; color: var(--text); font-weight: 600; }
+
+    .log-card {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .log-card h2 {
+      font-size: 0.95rem;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    #log {
+      font-family: Consolas, monospace;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      max-height: 200px;
+      overflow-y: auto;
+      color: var(--muted);
+    }
+
+    #log .entry { margin-bottom: 4px; }
+    #log .error { color: var(--red); }
+    #log .success { color: var(--green); }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #0f3460;
+      color: var(--text);
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+    }
+
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Gate Control</h1>
+    </header>
+
+    <div class="status-card">
+      <div class="status-label">Состояние шлагбаума</div>
+      <div id="status" class="status-value unknown">неизвестно</div>
+    </div>
+
+    <div class="status-card">
+      <div class="status-label">Камера и номер</div>
+      <div id="anpr-plate" class="status-value unknown">нет номера</div>
+      <div class="anpr-meta">
+        <div>
+          Камера
+          <strong id="anpr-camera" class="bad">выключена</strong>
+        </div>
+        <div>
+          Решение
+          <strong id="anpr-reason">ожидание</strong>
+        </div>
+      </div>
+      <div id="snapshot-wrap" class="snapshot-wrap">
+        <img id="anpr-snapshot" alt="Кадр с камеры">
+      </div>
+    </div>
+
+    <div class="buttons">
+      <button id="btn-open" class="btn-open">ПОДНЯТЬ</button>
+      <button id="btn-close" class="btn-close">ОПУСТИТЬ</button>
+      <button id="btn-refresh" class="btn-refresh">ОБНОВИТЬ</button>
+    </div>
+
+    <div class="log-card">
+      <h2>Журнал</h2>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const statusEl = document.getElementById("status");
+    const logEl = document.getElementById("log");
+    const toastEl = document.getElementById("toast");
+    const anprPlateEl = document.getElementById("anpr-plate");
+    const anprCameraEl = document.getElementById("anpr-camera");
+    const anprReasonEl = document.getElementById("anpr-reason");
+    const snapshotWrapEl = document.getElementById("snapshot-wrap");
+    const snapshotEl = document.getElementById("anpr-snapshot");
+    const buttons = [
+      document.getElementById("btn-open"),
+      document.getElementById("btn-close"),
+      document.getElementById("btn-refresh"),
+    ];
+    let lastAnprEventId = 0;
+    let snapshotTick = 0;
+
+    function setButtonsDisabled(disabled) {
+      buttons.forEach((btn) => (btn.disabled = disabled));
+    }
+
+    function showToast(text) {
+      toastEl.textContent = text;
+      toastEl.classList.add("show");
+      setTimeout(() => toastEl.classList.remove("show"), 2500);
+    }
+
+    function appendLog(text, kind = "") {
+      const entry = document.createElement("div");
+      entry.className = "entry" + (kind ? " " + kind : "");
+      const time = new Date().toLocaleTimeString("ru-RU");
+      entry.textContent = `[${time}] ${text}`;
+      logEl.prepend(entry);
+      while (logEl.children.length > 50) {
+        logEl.removeChild(logEl.lastChild);
+      }
+    }
+
+    function cameraLabel(anpr) {
+      if (!anpr || !anpr.enabled) return "выключена";
+      const map = {
+        connected: "подключена",
+        connecting: "подключение",
+        disconnected: "нет связи",
+        disabled: "выключена",
+      };
+      if (anpr.reader === "loading") return "загрузка модели";
+      return map[anpr.camera] || anpr.camera || "неизвестно";
+    }
+
+    function renderAnpr(anpr) {
+      if (!anpr) return;
+
+      const plate = anpr.last_plate_display || anpr.last_plate;
+      anprPlateEl.textContent = plate || "нет номера";
+      anprPlateEl.className = "status-value";
+      if (anpr.last_decision === "opened") anprPlateEl.classList.add("open");
+      else if (plate) anprPlateEl.classList.add("unknown");
+      else anprPlateEl.classList.add("unknown");
+
+      anprCameraEl.textContent = cameraLabel(anpr);
+      anprCameraEl.className = anpr.camera === "connected" ? "ok" : "bad";
+      anprReasonEl.textContent = anpr.last_reason || anpr.error || "ожидание";
+
+      const showSnapshot = anpr.camera === "connected";
+      snapshotWrapEl.classList.toggle("visible", showSnapshot);
+      if (showSnapshot) {
+        snapshotTick += 1;
+        snapshotEl.src = "/api/anpr/snapshot?t=" + snapshotTick;
+      }
+
+      const events = anpr.events || [];
+      const fresh = events
+        .filter((ev) => ev.id > lastAnprEventId)
+        .sort((a, b) => a.id - b.id);
+      fresh.forEach((ev) => {
+        appendLog(ev.text, ev.kind === "warn" ? "" : ev.kind);
+        lastAnprEventId = Math.max(lastAnprEventId, ev.id);
+      });
+    }
+
+    function renderStatus(data) {
+      const label = data.label || "неизвестно";
+      statusEl.textContent = label;
+      statusEl.className = "status-value";
+      if (data.state === 0) statusEl.classList.add("open");
+      else if (data.state === 1) statusEl.classList.add("closed");
+      else statusEl.classList.add("unknown");
+      if (data.anpr) renderAnpr(data.anpr);
+    }
+
+    async function apiCall(method, path) {
+      setButtonsDisabled(true);
+      try {
+        const res = await fetch(path, { method });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = data.detail || res.statusText;
+          appendLog(msg, "error");
+          showToast(msg);
+          return null;
+        }
+        if (data.label !== undefined) renderStatus(data);
+        if (data.message) {
+          appendLog(data.message, "success");
+          showToast(data.message);
+        }
+        return data;
+      } catch (err) {
+        appendLog(String(err), "error");
+        showToast("Ошибка сети");
+        return null;
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
+    document.getElementById("btn-open").addEventListener("click", () => apiCall("POST", "/api/open"));
+    document.getElementById("btn-close").addEventListener("click", () => apiCall("POST", "/api/close"));
+    document.getElementById("btn-refresh").addEventListener("click", () => apiCall("POST", "/api/refresh"));
+
+    appendLog("Gate Control web запущен");
+    apiCall("GET", "/api/status").then((data) => {
+      if (data) appendLog(`Начальное состояние: ${data.label}`);
+    });
+    setInterval(() => {
+      fetch("/api/status")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data) renderStatus(data);
+        })
+        .catch(() => {});
+    }, 2000);
+  </script>
+</body>
+</html>

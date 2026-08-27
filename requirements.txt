@@ -1,2 +1,8 @@
 customtkinter>=5.2.2
 pysnmp>=7.1.28
+fastapi>=0.115.0
+uvicorn>=0.32.0
+opencv-python-headless>=4.10.0
+numpy>=1.26.0
+fast-alpr>=0.4.0
+onnxruntime>=1.19.0
