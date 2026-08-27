@@ -12,19 +12,23 @@ from pysnmp.hlapi.v3arch.asyncio import (
 
 from config import Config
 
-cfg = Config()
-
 
 class SNMPGate:
     """SNMP-клиент для управления DO1 на SNR-ERD-2.3."""
 
     def __init__(self):
+        self.cfg = Config()
         self.engine = SnmpEngine()
-        self.community = CommunityData(cfg.community, mpModel=0)
+        self.community = CommunityData(self.cfg.community, mpModel=0)
         self.context = ContextData()
+        self._target = None
 
     async def _get_target(self):
-        return await UdpTransportTarget.create((cfg.ip, cfg.port))
+        if self._target is None:
+            self._target = await UdpTransportTarget.create(
+                (self.cfg.ip, self.cfg.port)
+            )
+        return self._target
 
     async def get_state(self) -> int:
         target = await self._get_target()
@@ -34,7 +38,7 @@ class SNMPGate:
             self.community,
             target,
             self.context,
-            ObjectType(ObjectIdentity(cfg.oid)),
+            ObjectType(ObjectIdentity(self.cfg.oid)),
         )
 
         if error_indication:
@@ -59,7 +63,7 @@ class SNMPGate:
             self.community,
             target,
             self.context,
-            ObjectType(ObjectIdentity(cfg.oid), Integer(value)),
+            ObjectType(ObjectIdentity(self.cfg.oid), Integer(value)),
         )
 
         if error_indication:
@@ -68,15 +72,25 @@ class SNMPGate:
         if error_status:
             raise RuntimeError(error_status.prettyPrint())
 
-    async def open_gate(self) -> None:
-        await self.set_state(0)
-
-    async def close_gate(self) -> None:
-        await self.set_state(1)
-
     async def pulse_gate(self) -> None:
         """Импульс 3 секунды (режим Reset на ERD)."""
         await self.set_state(2)
+
+    async def open_gate(self) -> int:
+        if self.cfg.do1_mode == "pulse":
+            await self.pulse_gate()
+            return 2
+
+        await self.set_state(0)
+        return 0
+
+    async def close_gate(self) -> int:
+        if self.cfg.do1_mode == "pulse":
+            await self.pulse_gate()
+            return 2
+
+        await self.set_state(1)
+        return 1
 
     def close(self) -> None:
         self.engine.close_dispatcher()

@@ -25,3 +25,15 @@ class Config:
     @property
     def oid(self):
         return self.data["oid_do1"]
+
+    @property
+    def do1_mode(self) -> str:
+        return self.data.get("do1_mode", "hold")
+
+    @property
+    def pulse_cooldown_sec(self) -> float:
+        return float(self.data.get("pulse_cooldown_sec", 3.5))
+
+    @property
+    def command_cooldown_sec(self) -> float:
+        return float(self.data.get("command_cooldown_sec", 0.8))
