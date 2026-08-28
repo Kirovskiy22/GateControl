@@ -11,13 +11,14 @@
     "web_port": 8080,
     "rtsp_url": "",
     "anpr_enabled": false,
-    "anpr_min_confidence": 0.6,
-    "anpr_frame_interval_sec": 0.4,
+    "anpr_min_confidence": 0.45,
+    "anpr_frame_interval_sec": 0.5,
     "anpr_open_cooldown_sec": 20,
     "anpr_whitelist_only": false,
     "anpr_require_valid_format": true,
     "anpr_open_on_detect": true,
     "anpr_allowed_plates": [],
     "anpr_rtsp_transport": "tcp",
-    "anpr_resize_width": 1280
+    "anpr_resize_width": 1920,
+    "anpr_flip_horizontal": true
 }

@@ -6,3 +6,4 @@ opencv-python-headless>=4.10.0
 numpy>=1.26.0
 fast-alpr>=0.4.0
 onnxruntime>=1.19.0
+easyocr>=1.7.2

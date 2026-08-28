@@ -188,6 +188,7 @@ class AnprWorker:
             if not ok or frame is None:
                 return
 
+            frame = self._maybe_flip(frame)
             frame = self._maybe_resize(frame)
             self._store_preview(frame)
 
@@ -238,6 +239,13 @@ class AnprWorker:
             f"{shown}: не удалось открыть — {message}",
             "error",
         )
+
+    def _maybe_flip(self, frame):
+        import cv2
+
+        if not self.cfg.anpr_flip_horizontal:
+            return frame
+        return cv2.flip(frame, 1)
 
     def _maybe_resize(self, frame):
         import cv2

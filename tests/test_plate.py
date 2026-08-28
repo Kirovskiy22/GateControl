@@ -3,10 +3,12 @@ import unittest
 from services.plate import (
     OpenCooldown,
     PlateAccessPolicy,
+    extract_plate_candidates,
     format_plate,
     is_valid_ru_plate,
     normalize_plate,
     ocr_confidence,
+    repair_ocr_plate,
 )
 
 
@@ -17,11 +19,21 @@ class NormalizePlateTests(unittest.TestCase):
     def test_strips_rus_suffix(self):
         self.assertEqual(normalize_plate("А123ВС77RUS"), "А123ВС77")
 
+    def test_extracts_plate_from_noise(self):
+        self.assertEqual(extract_plate_candidates("номер A182MH"), ["А182МН"])
+
+    def test_repairs_mirrored_ocr(self):
+        self.assertEqual(repair_ocr_plate("A18ZMII"), "А182МН")
+        self.assertEqual(repair_ocr_plate("A182MH"), "А182МН")
+        self.assertEqual(repair_ocr_plate("STOP"), "")
+
     def test_valid_format(self):
         self.assertTrue(is_valid_ru_plate("А123ВС77"))
         self.assertTrue(is_valid_ru_plate("А123ВС777"))
+        self.assertTrue(is_valid_ru_plate("А182МН"))
         self.assertFalse(is_valid_ru_plate("123ABC"))
         self.assertEqual(format_plate("А123ВС77"), "А 123 ВС 77")
+        self.assertEqual(format_plate("А182МН"), "А 182 МН")
 
 
 class PolicyTests(unittest.TestCase):
@@ -36,6 +48,9 @@ class PolicyTests(unittest.TestCase):
         decision = policy.evaluate("A123BC77", 0.91)
         self.assertTrue(decision.open_gate)
         self.assertEqual(decision.plate, "А123ВС77")
+        short = policy.evaluate("А182МН", 0.8)
+        self.assertTrue(short.open_gate)
+        self.assertEqual(short.plate, "А182МН")
 
     def test_whitelist_only_rejects_unknown(self):
         policy = PlateAccessPolicy(

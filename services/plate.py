@@ -21,7 +21,10 @@ LATIN_TO_CYRILLIC = str.maketrans(
     }
 )
 RU_PLATE_RE = re.compile(
-    rf"^[{CYRILLIC_PLATE_LETTERS}]\d{{3}}[{CYRILLIC_PLATE_LETTERS}]{{2}}\d{{2,3}}$"
+    rf"^[{CYRILLIC_PLATE_LETTERS}]\d{{3}}[{CYRILLIC_PLATE_LETTERS}]{{2}}(\d{{2,3}})?$"
+)
+PLATE_SEARCH_RE = re.compile(
+    rf"[{CYRILLIC_PLATE_LETTERS}]\d{{3}}[{CYRILLIC_PLATE_LETTERS}]{{2}}(?:\d{{2,3}})?"
 )
 
 
@@ -38,12 +41,99 @@ def is_valid_ru_plate(plate: str) -> bool:
     return bool(RU_PLATE_RE.fullmatch(plate))
 
 
+TO_DIGIT = {
+    "O": "0",
+    "О": "0",
+    "D": "0",
+    "Q": "0",
+    "I": "1",
+    "L": "1",
+    "Z": "2",
+    "S": "5",
+    "B": "8",
+    "Б": "8",
+    "G": "6",
+}
+TO_LETTER = {
+    "0": "О",
+    "8": "В",
+}
+
+
+def _as_digit(char: str) -> str | None:
+    if char.isdigit():
+        return char
+    return TO_DIGIT.get(char)
+
+
+def _as_letter(char: str) -> str | None:
+    if char in CYRILLIC_PLATE_LETTERS:
+        return char
+    mapped = TO_LETTER.get(char)
+    if mapped and mapped in CYRILLIC_PLATE_LETTERS:
+        return mapped
+    return None
+
+
+def _coerce_chunk(chunk: str) -> str | None:
+    if len(chunk) < 6:
+        return None
+    letters0 = _as_letter(chunk[0])
+    d1 = _as_digit(chunk[1])
+    d2 = _as_digit(chunk[2])
+    d3 = _as_digit(chunk[3])
+    letters4 = _as_letter(chunk[4])
+    letters5 = _as_letter(chunk[5])
+    if None in (letters0, d1, d2, d3, letters4, letters5):
+        return None
+    region = ""
+    for char in chunk[6:9]:
+        digit = _as_digit(char)
+        if digit is None:
+            break
+        region += digit
+    plate = f"{letters0}{d1}{d2}{d3}{letters4}{letters5}{region}"
+    if is_valid_ru_plate(plate):
+        return plate
+    return None
+
+
+def repair_ocr_plate(raw: str) -> str:
+    text = normalize_plate(raw)
+    for src, dst in (("II", "Н"), ("IL", "Н"), ("LI", "Н")):
+        text = text.replace(src, dst)
+    candidates = extract_plate_candidates(text)
+    if candidates:
+        return candidates[0]
+    for length in (6, 8, 9, 7):
+        for start in range(0, max(1, len(text) - length + 1)):
+            coerced = _coerce_chunk(text[start : start + length])
+            if coerced:
+                return coerced
+    return ""
+
+
+def extract_plate_candidates(raw: str) -> list[str]:
+    norm = normalize_plate(raw)
+    if not norm:
+        return []
+    found: list[str] = []
+    for match in PLATE_SEARCH_RE.finditer(norm):
+        text = match.group(0)
+        if text not in found:
+            found.append(text)
+    if is_valid_ru_plate(norm) and norm not in found:
+        found.insert(0, norm)
+    return found
+
+
 def format_plate(plate: str) -> str:
     if not is_valid_ru_plate(plate):
         return plate
-    letters_tail = 2
-    region_len = len(plate) - 6
-    return f"{plate[0]} {plate[1:4]} {plate[4:6]} {plate[6:6 + region_len]}"
+    body = f"{plate[0]} {plate[1:4]} {plate[4:6]}"
+    if len(plate) > 6:
+        return f"{body} {plate[6:]}"
+    return body
 
 
 def ocr_confidence(value: object) -> float:
@@ -89,6 +179,9 @@ class PlateAccessPolicy:
 
     def evaluate(self, raw_text: str, confidence: float) -> PlateDecision:
         plate = normalize_plate(raw_text)
+        repaired = repair_ocr_plate(raw_text)
+        if repaired:
+            plate = repaired
         conf = ocr_confidence(confidence)
 
         if not plate:
@@ -104,13 +197,17 @@ class PlateAccessPolicy:
             )
 
         if self.require_valid_format and not is_valid_ru_plate(plate):
-            return PlateDecision(
-                plate,
-                conf,
-                False,
-                "номер не похож на российский ГРЗ",
-                "warn",
-            )
+            candidates = extract_plate_candidates(raw_text)
+            if candidates:
+                plate = candidates[0]
+            else:
+                return PlateDecision(
+                    plate,
+                    conf,
+                    False,
+                    "номер не похож на российский ГРЗ",
+                    "warn",
+                )
 
         if not self.open_on_detect:
             return PlateDecision(

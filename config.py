@@ -92,3 +92,7 @@ class Config:
     @property
     def anpr_resize_width(self) -> int:
         return int(self.data.get("anpr_resize_width", 1280))
+
+    @property
+    def anpr_flip_horizontal(self) -> bool:
+        return bool(self.data.get("anpr_flip_horizontal", False))
