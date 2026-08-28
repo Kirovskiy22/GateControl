@@ -5,6 +5,7 @@ import threading
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 from config import Config
 from services.anpr_worker import AnprWorker
@@ -12,23 +13,46 @@ from services.snmp_worker import SNMPWorker
 from web.controllers.web_gate_controller import WebGateController
 
 STATIC_DIR = Path(__file__).parent / "static"
+API_VERSION = 2
+
+
+def _snmp_poll_loop(controller: WebGateController, interval_sec: float, stop: threading.Event) -> None:
+    while not stop.wait(max(5.0, interval_sec)):
+        try:
+            controller.refresh()
+        except Exception:
+            pass
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    cfg = Config()
     worker = SNMPWorker()
     controller = WebGateController(worker)
-    anpr = AnprWorker(open_gate=controller.open_gate)
+    anpr = AnprWorker(
+        open_gate=controller.open_gate,
+        close_gate=controller.close_gate,
+        cfg=cfg,
+    )
+    snmp_stop = threading.Event()
     app.state.controller = controller
     app.state.worker = worker
     app.state.anpr = anpr
+    app.state.snmp_stop = snmp_stop
     threading.Thread(
         target=controller.sync_initial_state,
         name="InitialStateSync",
         daemon=True,
     ).start()
+    threading.Thread(
+        target=_snmp_poll_loop,
+        args=(controller, cfg.snmp_poll_interval_sec, snmp_stop),
+        name="SNMPPoll",
+        daemon=True,
+    ).start()
     anpr.start()
     yield
+    snmp_stop.set()
     anpr.stop()
     worker.shutdown()
 
@@ -40,6 +64,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 def full_status(extra: dict | None = None) -> dict:
     payload = app.state.controller.get_status()
     payload["anpr"] = app.state.anpr.get_status()
+    payload["api_version"] = API_VERSION
     if extra:
         payload.update(extra)
     return payload
@@ -65,6 +90,19 @@ async def api_anpr_snapshot():
         media_type="image/jpeg",
         headers={"Cache-Control": "no-store"},
     )
+
+
+class StreamRequest(BaseModel):
+    url: str = Field(min_length=1)
+    flip: bool | None = None
+
+
+@app.post("/api/anpr/stream")
+async def api_anpr_stream(body: StreamRequest):
+    ok, message = app.state.anpr.set_stream(body.url, flip=body.flip)
+    if not ok:
+        raise HTTPException(status_code=400, detail=message)
+    return full_status({"ok": True, "message": message})
 
 
 @app.post("/api/open")

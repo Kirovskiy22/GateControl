@@ -23,7 +23,7 @@
       min-height: 100vh;
       display: flex;
       justify-content: center;
-      padding: 24px;
+      padding: 12px;
     }
 
     .container {
@@ -31,25 +31,57 @@
       max-width: 480px;
     }
 
-    header {
+    .stream-card,
+    .status-card,
+    .log-card {
       background: var(--surface);
       border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 20px;
-      text-align: center;
+      padding: 16px;
+      margin-bottom: 12px;
     }
 
-    header h1 {
-      font-size: 1.5rem;
-      font-weight: 700;
+    .stream-card label.status-label {
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    #rtsp-url {
+      width: 100%;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      background: #0f3460;
+      color: var(--text);
+      padding: 10px 12px;
+      font-size: 0.9rem;
+      margin-bottom: 10px;
+    }
+
+    .stream-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .flip-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      white-space: nowrap;
+    }
+
+    .btn-stream {
+      flex: 1;
+      background: #0f3460;
+      color: var(--text);
+      font-weight: 600;
+      padding: 12px;
+      font-size: 1rem;
     }
 
     .status-card {
-      background: var(--surface);
-      border-radius: 12px;
-      padding: 24px;
       text-align: center;
-      margin-bottom: 20px;
     }
 
     .status-label {
@@ -109,7 +141,7 @@
       display: flex;
       flex-direction: column;
       gap: 12px;
-      margin-bottom: 20px;
+      margin-bottom: 12px;
     }
 
     button {
@@ -130,12 +162,6 @@
     .btn-open { background: var(--green); color: #111; }
     .btn-close { background: var(--red); color: #fff; }
     .btn-refresh { background: #0f3460; color: var(--text); font-weight: 600; }
-
-    .log-card {
-      background: var(--surface);
-      border-radius: 12px;
-      padding: 16px;
-    }
 
     .log-card h2 {
       font-size: 0.95rem;
@@ -176,9 +202,17 @@
 </head>
 <body>
   <div class="container">
-    <header>
-      <h1>Gate Control</h1>
-    </header>
+    <div class="stream-card">
+      <label class="status-label" for="rtsp-url">RTSP-поток</label>
+      <input id="rtsp-url" type="text" placeholder="rtsp://user:pass@host:554/stream" autocomplete="off" spellcheck="false">
+      <div class="stream-row">
+        <label class="flip-row">
+          <input id="rtsp-flip" type="checkbox">
+          зеркально
+        </label>
+        <button id="btn-stream" class="btn-stream" type="button">Подключить</button>
+      </div>
+    </div>
 
     <div class="status-card">
       <div class="status-label">Состояние шлагбаума</div>
@@ -192,6 +226,10 @@
         <div>
           Камера
           <strong id="anpr-camera" class="bad">выключена</strong>
+        </div>
+        <div>
+          Поток
+          <strong id="anpr-stream">—</strong>
         </div>
         <div>
           Решение
@@ -223,9 +261,13 @@
     const toastEl = document.getElementById("toast");
     const anprPlateEl = document.getElementById("anpr-plate");
     const anprCameraEl = document.getElementById("anpr-camera");
+    const anprStreamEl = document.getElementById("anpr-stream");
     const anprReasonEl = document.getElementById("anpr-reason");
     const snapshotWrapEl = document.getElementById("snapshot-wrap");
     const snapshotEl = document.getElementById("anpr-snapshot");
+    const rtspUrlEl = document.getElementById("rtsp-url");
+    const rtspFlipEl = document.getElementById("rtsp-flip");
+    const btnStreamEl = document.getElementById("btn-stream");
     const buttons = [
       document.getElementById("btn-open"),
       document.getElementById("btn-close"),
@@ -233,6 +275,9 @@
     ];
     let lastAnprEventId = 0;
     let snapshotTick = 0;
+    let streamPrefill = false;
+    let lastCameraState = "";
+    let serverOnline = true;
 
     function setButtonsDisabled(disabled) {
       buttons.forEach((btn) => (btn.disabled = disabled));
@@ -278,14 +323,38 @@
       else anprPlateEl.classList.add("unknown");
 
       anprCameraEl.textContent = cameraLabel(anpr);
-      anprCameraEl.className = anpr.camera === "connected" ? "ok" : "bad";
+      anprCameraEl.className =
+        anpr.camera === "connected" || anpr.camera === "connecting" ? "ok" : "bad";
+      const stream = anpr.stream;
+      if (stream) {
+        anprStreamEl.textContent =
+          `${stream.width}×${stream.height} · ${stream.fps} fps · анализ ${stream.process_interval_sec} с`;
+      } else if (anpr.camera === "connecting") {
+        anprStreamEl.textContent = "анализ параметров…";
+      } else {
+        anprStreamEl.textContent = "—";
+      }
       anprReasonEl.textContent = anpr.last_reason || anpr.error || "ожидание";
 
-      const showSnapshot = anpr.camera === "connected";
-      snapshotWrapEl.classList.toggle("visible", showSnapshot);
-      if (showSnapshot) {
-        snapshotTick += 1;
-        snapshotEl.src = "/api/anpr/snapshot?t=" + snapshotTick;
+      if (!streamPrefill) {
+        if (anpr.rtsp_url) rtspUrlEl.value = anpr.rtsp_url;
+        rtspFlipEl.checked = !!anpr.flip_horizontal;
+        streamPrefill = true;
+      }
+
+      const showSnapshot = anpr.camera === "connected" || anpr.camera === "connecting";
+      if (anpr.camera !== lastCameraState) {
+        lastCameraState = anpr.camera;
+        if (anpr.camera !== "connected") {
+          snapshotEl.removeAttribute("src");
+        }
+      }
+      if (showSnapshot && anpr.camera === "connected" && anpr.has_frame) {
+        refreshSnapshot();
+      } else if (anpr.camera === "connecting") {
+        snapshotWrapEl.classList.add("visible");
+      } else {
+        snapshotWrapEl.classList.remove("visible");
       }
 
       const events = anpr.events || [];
@@ -314,7 +383,7 @@
         const res = await fetch(path, { method });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          const msg = data.detail || res.statusText;
+          const msg = formatApiError(data, res);
           appendLog(msg, "error");
           showToast(msg);
           return null;
@@ -327,29 +396,106 @@
         return data;
       } catch (err) {
         appendLog(String(err), "error");
-        showToast("Ошибка сети");
+        showToast("Сервер не отвечает — запустите python web_server.py");
         return null;
       } finally {
         setButtonsDisabled(false);
       }
     }
 
+    function refreshSnapshot() {
+      snapshotTick += 1;
+      snapshotEl.onload = () => snapshotWrapEl.classList.add("visible");
+      snapshotEl.onerror = () => snapshotWrapEl.classList.remove("visible");
+      snapshotEl.src = "/api/anpr/snapshot?t=" + snapshotTick;
+    }
+
+    function formatApiError(data, res) {
+      const detail = data?.detail;
+      if (Array.isArray(detail)) {
+        return detail.map((item) => item.msg || JSON.stringify(item)).join("; ");
+      }
+      if (typeof detail === "string" && detail.trim()) return detail;
+      if (res.status === 404) {
+        return "Сервер устарел — перезапустите: python web_server.py";
+      }
+      return res.statusText || "Ошибка запроса";
+    }
+
+    async function connectStream() {
+      const url = rtspUrlEl.value.trim();
+      if (!url) {
+        showToast("Вставьте RTSP URL");
+        return;
+      }
+      btnStreamEl.disabled = true;
+      snapshotEl.removeAttribute("src");
+      snapshotWrapEl.classList.add("visible");
+      try {
+        const res = await fetch("/api/anpr/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, flip: rtspFlipEl.checked }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = formatApiError(data, res);
+          appendLog(msg, "error");
+          showToast(msg);
+          return;
+        }
+        if (data.anpr) renderAnpr(data.anpr);
+        const msg = data.message || "Подключаюсь к камере";
+        appendLog(msg, "success");
+        showToast(msg);
+      } catch (err) {
+        appendLog(String(err), "error");
+        showToast("Сервер не отвечает — запустите python web_server.py");
+      } finally {
+        btnStreamEl.disabled = false;
+      }
+    }
+
     document.getElementById("btn-open").addEventListener("click", () => apiCall("POST", "/api/open"));
     document.getElementById("btn-close").addEventListener("click", () => apiCall("POST", "/api/close"));
     document.getElementById("btn-refresh").addEventListener("click", () => apiCall("POST", "/api/refresh"));
+    btnStreamEl.addEventListener("click", connectStream);
+    rtspUrlEl.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") connectStream();
+    });
 
-    appendLog("Gate Control web запущен");
+    appendLog("Веб-панель запущена");
     apiCall("GET", "/api/status").then((data) => {
-      if (data) appendLog(`Начальное состояние: ${data.label}`);
+      if (!data) return;
+      if (!data.api_version || data.api_version < 2) {
+        appendLog("Сервер устарел — перезапустите: python web_server.py", "error");
+        showToast("Перезапустите web_server.py");
+      } else {
+        appendLog(`Начальное состояние: ${data.label}`);
+      }
     });
     setInterval(() => {
       fetch("/api/status")
-        .then((res) => (res.ok ? res.json() : null))
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error("bad status"))))
         .then((data) => {
-          if (data) renderStatus(data);
+          if (!serverOnline) {
+            serverOnline = true;
+            appendLog("Связь с сервером восстановлена", "success");
+          }
+          renderStatus(data);
         })
-        .catch(() => {});
-    }, 2000);
+        .catch(() => {
+          if (serverOnline) {
+            serverOnline = false;
+            appendLog("Сервер не отвечает — запустите python web_server.py", "error");
+            showToast("Сервер не отвечает");
+          }
+        });
+    }, 3000);
+    setInterval(() => {
+      if (!serverOnline || lastCameraState !== "connected") return;
+      refreshSnapshot();
+    }, 3000);
   </script>
 </body>
 </html>

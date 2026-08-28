@@ -20,3 +20,9 @@ build/
 
 .DS_Store
 Thumbs.db
+
+# Локальные снимки и отладка ANPR
+debug_*.jpg
+debug_last_alpr_crop.jpg
+live_snapshot.jpg
+check_*.jpg

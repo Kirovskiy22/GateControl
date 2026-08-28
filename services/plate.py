@@ -75,6 +75,24 @@ def _as_letter(char: str) -> str | None:
     return None
 
 
+_LEADING_ONE_BODY_RE = re.compile(
+    rf"^1(\d{{3}}[{CYRILLIC_PLATE_LETTERS}]{{2}}\d{{2,3}})$"
+)
+_PARTIAL_BODY_RE = re.compile(rf"^(\d{{3}}[{CYRILLIC_PLATE_LETTERS}]{{2}})$")
+_SINGLE_LETTER_RE = re.compile(rf"^[{CYRILLIC_PLATE_LETTERS}]$")
+
+
+def _fix_leading_one_as_letter(text: str) -> str:
+    """OCR путает С/C с 1: 1108ЕС154 → С108ЕС154."""
+    match = _LEADING_ONE_BODY_RE.fullmatch(text)
+    if not match:
+        return ""
+    candidate = f"С{match.group(1)}"
+    if is_valid_ru_plate(candidate):
+        return candidate
+    return ""
+
+
 def _coerce_chunk(chunk: str) -> str | None:
     if len(chunk) < 6:
         return None
@@ -110,6 +128,15 @@ def repair_ocr_plate(raw: str) -> str:
             coerced = _coerce_chunk(text[start : start + length])
             if coerced:
                 return coerced
+
+    fixed = _fix_leading_one_as_letter(text)
+    if fixed:
+        return fixed
+    for length in (9, 8):
+        for start in range(0, max(1, len(text) - length + 1)):
+            fixed = _fix_leading_one_as_letter(text[start : start + length])
+            if fixed:
+                return fixed
     return ""
 
 
@@ -167,6 +194,8 @@ class PlateAccessPolicy:
         whitelist_only: bool,
         require_valid_format: bool,
         min_confidence: float,
+        open_min_confidence: float | None = None,
+        require_region: bool = False,
         open_on_detect: bool,
     ):
         self.allowed = {
@@ -175,16 +204,18 @@ class PlateAccessPolicy:
         self.whitelist_only = whitelist_only
         self.require_valid_format = require_valid_format
         self.min_confidence = min_confidence
+        self.open_min_confidence = (
+            open_min_confidence if open_min_confidence is not None else min_confidence
+        )
+        self.require_region = require_region
         self.open_on_detect = open_on_detect
 
     def evaluate(self, raw_text: str, confidence: float) -> PlateDecision:
-        plate = normalize_plate(raw_text)
-        repaired = repair_ocr_plate(raw_text)
-        if repaired:
-            plate = repaired
         conf = ocr_confidence(confidence)
+        repaired = repair_ocr_plate(raw_text)
+        plate = repaired or normalize_plate(raw_text)
 
-        if not plate:
+        if not plate or len(plate) < 4:
             return PlateDecision("", conf, False, "пустой номер", "warn")
 
         if conf < self.min_confidence:
@@ -196,11 +227,8 @@ class PlateAccessPolicy:
                 "warn",
             )
 
-        if self.require_valid_format and not is_valid_ru_plate(plate):
-            candidates = extract_plate_candidates(raw_text)
-            if candidates:
-                plate = candidates[0]
-            else:
+        if self.require_valid_format:
+            if not repaired or not is_valid_ru_plate(repaired):
                 return PlateDecision(
                     plate,
                     conf,
@@ -208,6 +236,16 @@ class PlateAccessPolicy:
                     "номер не похож на российский ГРЗ",
                     "warn",
                 )
+            plate = repaired
+
+        if self.require_region and len(plate) <= 6:
+            return PlateDecision(
+                plate,
+                conf,
+                False,
+                "нет кода региона (2–3 цифры)",
+                "warn",
+            )
 
         if not self.open_on_detect:
             return PlateDecision(
@@ -216,6 +254,15 @@ class PlateAccessPolicy:
                 False,
                 "автооткрытие выключено",
                 "info",
+            )
+
+        if conf < self.open_min_confidence:
+            return PlateDecision(
+                plate,
+                conf,
+                False,
+                f"уверенность для открытия {conf:.0%} (порог {self.open_min_confidence:.0%})",
+                "warn",
             )
 
         in_whitelist = plate in self.allowed
@@ -260,3 +307,33 @@ class OpenCooldown:
     def mark(self, plate: str, now: float) -> None:
         self._plate = plate
         self._until = now + self.seconds
+
+
+class AutoCloseTracker:
+    """Закрыть шлагбаум после N секунд без номера в кадре."""
+
+    def __init__(self, close_after_sec: float, *, enabled: bool = True):
+        self.close_after_sec = max(0.0, float(close_after_sec))
+        self.enabled = enabled
+        self._no_plate_since: float | None = None
+        self._closed_for_streak = False
+
+    def observe_plate(self) -> None:
+        self._no_plate_since = None
+        self._closed_for_streak = False
+
+    def should_close(self, now: float, open_cooldown_remaining: float) -> bool:
+        if not self.enabled or self.close_after_sec <= 0:
+            return False
+        if self._closed_for_streak:
+            return False
+        if open_cooldown_remaining > 0:
+            self._no_plate_since = None
+            return False
+        if self._no_plate_since is None:
+            self._no_plate_since = now
+            return False
+        return (now - self._no_plate_since) >= self.close_after_sec
+
+    def mark_closed(self) -> None:
+        self._closed_for_streak = True
