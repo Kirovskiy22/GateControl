@@ -45,7 +45,7 @@ async def index():
 
 
 @app.get("/api/status")
-async def api_status():
+def api_status():
     ok, message = app.state.controller.refresh()
     payload = full_status()
     payload["controller_message"] = message
