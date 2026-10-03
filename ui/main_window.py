@@ -16,7 +16,7 @@ class MainWindow(ctk.CTk):
         self.controller = GateController(self)
 
         self.open_btn.configure(command=self.controller.open_gate)
-        self.close_btn.configure(command=self.controller.close_gate)
+        self.close_btn.configure(command=self.controller.stop_gate)
         self.refresh_btn.configure(command=self.controller.refresh)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -38,7 +38,7 @@ class MainWindow(ctk.CTk):
 
         self.connection = ctk.CTkLabel(
             header,
-            text="🟢 Connected",
+            text="⚪ Положение неизвестно",
             text_color=COLORS["green"],
             font=("Segoe UI", 18),
         )
@@ -51,7 +51,7 @@ class MainWindow(ctk.CTk):
             buttons,
             width=250,
             height=60,
-            text="🟢 ПОДНЯТЬ",
+            text="🟢 START / ОТКРЫТЬ-СТОП",
             font=("Segoe UI", 18, "bold"),
             fg_color=COLORS["green"],
             text_color="black",
@@ -62,7 +62,7 @@ class MainWindow(ctk.CTk):
             buttons,
             width=250,
             height=60,
-            text="🔴 ОПУСТИТЬ",
+            text="🔴 STOP / СНЯТЬ ВЫХОДЫ",
             font=("Segoe UI", 18, "bold"),
             fg_color=COLORS["red"],
         )
@@ -86,7 +86,7 @@ class MainWindow(ctk.CTk):
 
         self.status_label = ctk.CTkLabel(
             status,
-            text="⚪ Ожидание команды",
+            text="⚪ Положение ворот неизвестно (нет датчика)",
             font=("Segoe UI", 20, "bold"),
         )
         self.status_label.pack(pady=20)
