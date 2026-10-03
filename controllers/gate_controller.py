@@ -1,19 +1,19 @@
+import threading
 from datetime import datetime
 
 from config import Config
-from services.snmp_worker import SNMPWorker
+from services.esp32_gate import ESP32GateController
 
 
 class GateController:
-    """Связка GUI и SNMP через фоновый worker."""
+    """Desktop controls for ESP32 wired to the single START input."""
 
     def __init__(self, ui):
         self.ui = ui
         self.cfg = Config()
-        self.worker = SNMPWorker()
+        self.controller = ESP32GateController(self.cfg)
         self._pending = False
-        self._do1_state: int | None = None
-        self.ui.after(100, self._sync_initial_state)
+        self.ui.after(100, self.refresh)
 
     def log(self, text: str) -> None:
         time = datetime.now().strftime("%H:%M:%S")
@@ -25,117 +25,38 @@ class GateController:
         self.ui.close_btn.configure(state=state)
         self.ui.refresh_btn.configure(state=state)
 
-    def _set_status(self, state: int | None) -> None:
-        if state == 0:
-            self.ui.status_label.configure(text="🟢 Шлагбаум поднят")
-        elif state == 1:
-            self.ui.status_label.configure(text="🔴 Шлагбаум опущен")
-        elif state == 2:
-            self.ui.status_label.configure(text="⚡ Импульс отправлен")
-        else:
-            self.ui.status_label.configure(text="⚪ Состояние неизвестно")
+    def _set_status(self) -> None:
+        self.ui.status_label.configure(text="⚪ Положение ворот неизвестно (нет датчика)")
 
-    def _finish_command(self) -> None:
-        self._pending = False
-        self._set_buttons_state("normal")
-
-    def _release_buttons(self) -> None:
-        self._set_buttons_state("normal")
-
-    def _sync_initial_state(self) -> None:
-        def on_success(state):
-            self._do1_state = state
-            self.ui.after(0, lambda: self._set_status(state))
-            self.ui.after(0, lambda: self.log(f"Начальное состояние DO1: {state}"))
-
-        def on_error(exc):
-            self.ui.after(0, lambda: self.log(f"Не удалось получить состояние: {exc}"))
-
-        self.worker.submit_get_state(on_success=on_success, on_error=on_error)
-
-    def _begin_command(self) -> bool:
+    def _dispatch(self, action, label: str) -> None:
         if self._pending:
             self.log("Команда уже выполняется, подождите")
-            return False
-
+            return
         self._pending = True
         self._set_buttons_state("disabled")
-        return True
 
-    def _should_skip_hold_command(self, target_state: int) -> bool:
-        if self.cfg.do1_mode != "hold":
-            return False
+        def run():
+            ok, message = action()
+            def finish():
+                self._pending = False
+                self._set_buttons_state("normal")
+                self._set_status()
+                self.log(message or label if ok else f"Ошибка: {message}")
+            self.ui.after(0, finish)
 
-        if self._do1_state == target_state:
-            return True
-
-        return False
-
-    def _dispatch(self, submit_fn, target_state: int | None, log_text: str) -> None:
-        if not self._begin_command():
-            return
-
-        if target_state is not None and self._should_skip_hold_command(target_state):
-            self.log(f"Пропуск: DO1 уже в состоянии {target_state}")
-            self._finish_command()
-            return
-
-        def on_success(state):
-            if target_state is not None and self.cfg.do1_mode == "hold":
-                self._do1_state = target_state
-            elif self.cfg.do1_mode == "pulse":
-                self._do1_state = None
-
-            self.ui.after(0, lambda: self._set_status(state if state is not None else target_state))
-
-        def on_error(exc):
-            self.ui.after(0, lambda: self.log(f"Ошибка: {exc}"))
-
-        if submit_fn(on_success=on_success, on_error=on_error):
-            self.log(log_text)
-            self._pending = False
-            self._release_buttons()
-        else:
-            self.log("SNMP worker занят")
-            self._finish_command()
+        threading.Thread(target=run, name="ESP32Command", daemon=True).start()
 
     def open_gate(self) -> None:
-        self._dispatch(
-            self.worker.submit_open,
-            0,
-            "Команда: поднять (SET 0)" if self.cfg.do1_mode == "hold" else "Команда: импульс (SET 2)",
-        )
+        self._dispatch(self.controller.open_gate, "START / импульс")
 
     def close_gate(self) -> None:
-        self._dispatch(
-            self.worker.submit_close,
-            1,
-            "Команда: опустить (SET 1)" if self.cfg.do1_mode == "hold" else "Команда: импульс (SET 2)",
-        )
+        self.log("Отдельный CLOSE не подключён; используйте START для переключения движения")
+
+    def stop_gate(self) -> None:
+        self._dispatch(self.controller.stop_gate, "STOP / снять выходы ESP32")
 
     def refresh(self) -> None:
-        if not self._begin_command():
-            return
-
-        def on_success(state):
-            self._do1_state = state
-            self.ui.after(0, lambda: self._set_status(state))
-            self.ui.after(0, lambda: self.log(f"Состояние DO1: {state}"))
-
-        def on_error(exc):
-            self.ui.after(0, lambda: self.log(f"Ошибка: {exc}"))
-
-        if self.worker.submit_get_state(on_success=on_success, on_error=on_error):
-            self.log("Запрос состояния отправлен")
-            self._pending = False
-            self._release_buttons()
-        else:
-            self.log("SNMP worker занят")
-            self._finish_command()
+        self._dispatch(self.controller.refresh, "Статус ESP32 обновлён")
 
     def shutdown(self) -> None:
-        try:
-            self.worker.shutdown()
-            self.log("SNMP worker остановлен")
-        except Exception as e:
-            self.log(f"Ошибка остановки: {e}")
+        self.log("Управление ESP32 завершено")
