@@ -1,6 +1,5 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
-import threading
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
@@ -9,52 +8,22 @@ from pydantic import BaseModel, Field
 
 from config import Config
 from services.anpr_worker import AnprWorker
-from services.snmp_worker import SNMPWorker
-from web.controllers.web_gate_controller import WebGateController
+from services.esp32_gate import ESP32GateController
 
 STATIC_DIR = Path(__file__).parent / "static"
-API_VERSION = 2
-
-
-def _snmp_poll_loop(controller: WebGateController, interval_sec: float, stop: threading.Event) -> None:
-    while not stop.wait(max(5.0, interval_sec)):
-        try:
-            controller.refresh()
-        except Exception:
-            pass
+API_VERSION = 3
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     cfg = Config()
-    worker = SNMPWorker()
-    controller = WebGateController(worker)
-    anpr = AnprWorker(
-        open_gate=controller.open_gate,
-        close_gate=controller.close_gate,
-        cfg=cfg,
-    )
-    snmp_stop = threading.Event()
+    controller = ESP32GateController(cfg)
+    anpr = AnprWorker(open_gate=controller.open_gate, cfg=cfg)
     app.state.controller = controller
-    app.state.worker = worker
     app.state.anpr = anpr
-    app.state.snmp_stop = snmp_stop
-    threading.Thread(
-        target=controller.sync_initial_state,
-        name="InitialStateSync",
-        daemon=True,
-    ).start()
-    threading.Thread(
-        target=_snmp_poll_loop,
-        args=(controller, cfg.snmp_poll_interval_sec, snmp_stop),
-        name="SNMPPoll",
-        daemon=True,
-    ).start()
     anpr.start()
     yield
-    snmp_stop.set()
     anpr.stop()
-    worker.shutdown()
 
 
 app = FastAPI(title="Gate Control", lifespan=lifespan)
@@ -77,7 +46,11 @@ async def index():
 
 @app.get("/api/status")
 async def api_status():
-    return full_status()
+    ok, message = app.state.controller.refresh()
+    payload = full_status()
+    payload["controller_message"] = message
+    payload["controller_ok"] = ok
+    return payload
 
 
 @app.get("/api/anpr/snapshot")
@@ -85,11 +58,7 @@ async def api_anpr_snapshot():
     jpeg = app.state.anpr.last_jpeg()
     if not jpeg:
         raise HTTPException(status_code=404, detail="Нет кадра с камеры")
-    return Response(
-        content=jpeg,
-        media_type="image/jpeg",
-        headers={"Cache-Control": "no-store"},
-    )
+    return Response(content=jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 class StreamRequest(BaseModel):
@@ -106,23 +75,31 @@ async def api_anpr_stream(body: StreamRequest):
 
 
 @app.post("/api/open")
-async def api_open():
+def api_open():
     ok, message = app.state.controller.open_gate()
     if not ok:
         raise HTTPException(status_code=503, detail=message)
     return full_status({"ok": True, "message": message})
 
 
-@app.post("/api/close")
-async def api_close():
-    ok, message = app.state.controller.close_gate()
+@app.post("/api/stop")
+def api_stop():
+    ok, message = app.state.controller.stop_gate()
     if not ok:
         raise HTTPException(status_code=503, detail=message)
     return full_status({"ok": True, "message": message})
 
 
+@app.post("/api/close")
+def api_close():
+    raise HTTPException(
+        status_code=409,
+        detail="Отдельная команда CLOSE не поддерживается: используется один переключающий вход START. Отправьте импульс START вручную.",
+    )
+
+
 @app.post("/api/refresh")
-async def api_refresh():
+def api_refresh():
     ok, message = app.state.controller.refresh()
     if not ok:
         raise HTTPException(status_code=503, detail=message)
@@ -132,13 +109,7 @@ async def api_refresh():
 def main() -> None:
     cfg = Config()
     import uvicorn
-
-    uvicorn.run(
-        "web.app:app",
-        host=cfg.web_host,
-        port=cfg.web_port,
-        reload=False,
-    )
+    uvicorn.run("web.app:app", host=cfg.web_host, port=cfg.web_port, reload=False)
 
 
 if __name__ == "__main__":
