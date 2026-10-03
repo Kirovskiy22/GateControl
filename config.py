@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 CONFIG_FILE = Path(__file__).parent / "config.json"
@@ -9,6 +10,26 @@ class Config:
     def __init__(self):
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             self.data = json.load(f)
+
+    @property
+    def gate_driver(self) -> str:
+        return str(self.data.get("gate_driver", "esp32")).lower()
+
+    @property
+    def esp32_base_url(self) -> str:
+        return str(self.data.get("esp32_base_url", "http://10.120.0.247:10001")).rstrip("/")
+
+    @property
+    def esp32_token(self) -> str:
+        return os.environ.get("GATECONTROL_ESP32_TOKEN", "")
+
+    @property
+    def esp32_timeout_sec(self) -> float:
+        return float(self.data.get("esp32_timeout_sec", 3.0))
+
+    @property
+    def esp32_command_cooldown_sec(self) -> float:
+        return max(0.0, float(self.data.get("esp32_command_cooldown_sec", 1.5)))
 
     @property
     def ip(self):
