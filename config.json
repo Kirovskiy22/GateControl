@@ -15,10 +15,10 @@
     "anpr_min_confidence": 0.55,
     "anpr_open_min_confidence": 0.6,
     "anpr_require_region": true,
-    "anpr_frame_interval_sec": 1.0,
+    "anpr_frame_interval_sec": 1,
     "anpr_open_cooldown_sec": 20,
-    "anpr_auto_close": true,
-    "anpr_close_after_sec": 8.0,
+    "anpr_auto_close": false,
+    "anpr_close_after_sec": 8,
     "anpr_whitelist_only": true,
     "anpr_require_valid_format": true,
     "anpr_open_on_detect": true,
@@ -53,13 +53,17 @@
     "anpr_cv_fallback": true,
     "anpr_motion_detect": true,
     "anpr_motion_threshold": 0.02,
-    "anpr_motion_retry_sec": 8.0,
+    "anpr_motion_retry_sec": 8,
     "anpr_roi_enabled": false,
     "anpr_roi": {
         "x0": 0.5,
         "y0": 0.26,
-        "x1": 1.0,
-        "y1": 1.0
+        "x1": 1,
+        "y1": 1
     },
-    "snmp_poll_interval_sec": 15
+    "snmp_poll_interval_sec": 15,
+    "gate_driver": "esp32",
+    "esp32_base_url": "http://10.120.0.247:10001",
+    "esp32_timeout_sec": 3,
+    "esp32_command_cooldown_sec": 1.5
 }
