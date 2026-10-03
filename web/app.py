@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -9,6 +10,7 @@ from pydantic import BaseModel, Field
 from config import Config
 from services.anpr_worker import AnprWorker
 from services.esp32_gate import ESP32GateController
+from services.plate import is_valid_ru_plate, normalize_plate
 
 STATIC_DIR = Path(__file__).parent / "static"
 API_VERSION = 3
@@ -21,6 +23,7 @@ async def lifespan(app: FastAPI):
     anpr = AnprWorker(open_gate=controller.open_gate, cfg=cfg)
     app.state.controller = controller
     app.state.anpr = anpr
+    app.state.plate_lock = threading.Lock()
     anpr.start()
     yield
     anpr.stop()
@@ -61,6 +64,10 @@ async def api_anpr_snapshot():
     return Response(content=jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
+class PlateRequest(BaseModel):
+    plate: str = Field(min_length=1, max_length=16)
+
+
 class StreamRequest(BaseModel):
     url: str = Field(min_length=1)
     flip: bool | None = None
@@ -72,6 +79,50 @@ async def api_anpr_stream(body: StreamRequest):
     if not ok:
         raise HTTPException(status_code=400, detail=message)
     return full_status({"ok": True, "message": message})
+
+
+@app.get("/api/anpr/plates")
+def api_anpr_plates():
+    return {"ok": True, "plates": sorted(app.state.anpr.cfg.anpr_allowed_plates)}
+
+
+@app.post("/api/anpr/plates")
+def api_add_anpr_plate(body: PlateRequest):
+    plate = normalize_plate(body.plate)
+    if not is_valid_ru_plate(plate):
+        raise HTTPException(status_code=400, detail="Введите российский номер в формате А123ВС77 или А123ВС777")
+    with app.state.plate_lock:
+        plates = app.state.anpr.cfg.anpr_allowed_plates
+        if plate in {normalize_plate(item) for item in plates}:
+            raise HTTPException(status_code=409, detail="Этот номер уже есть в списке")
+        previous = list(app.state.anpr.cfg.data.get("anpr_allowed_plates", []))
+        app.state.anpr.cfg.data["anpr_allowed_plates"] = [*plates, plate]
+        try:
+            app.state.anpr.cfg.save()
+        except OSError as exc:
+            app.state.anpr.cfg.data["anpr_allowed_plates"] = previous
+            raise HTTPException(status_code=500, detail=f"Не удалось сохранить config.json: {exc}") from exc
+        app.state.anpr.set_allowed_plates(app.state.anpr.cfg.anpr_allowed_plates)
+    return full_status({"ok": True, "message": f"Номер {plate} добавлен", "plates": sorted(app.state.anpr.cfg.anpr_allowed_plates)})
+
+
+@app.delete("/api/anpr/plates/{plate}")
+def api_delete_anpr_plate(plate: str):
+    normalized = normalize_plate(plate)
+    with app.state.plate_lock:
+        current = app.state.anpr.cfg.anpr_allowed_plates
+        updated = [item for item in current if normalize_plate(item) != normalized]
+        if len(updated) == len(current):
+            raise HTTPException(status_code=404, detail="Номер не найден")
+        previous = list(app.state.anpr.cfg.data.get("anpr_allowed_plates", []))
+        app.state.anpr.cfg.data["anpr_allowed_plates"] = updated
+        try:
+            app.state.anpr.cfg.save()
+        except OSError as exc:
+            app.state.anpr.cfg.data["anpr_allowed_plates"] = previous
+            raise HTTPException(status_code=500, detail=f"Не удалось сохранить config.json: {exc}") from exc
+        app.state.anpr.set_allowed_plates(app.state.anpr.cfg.anpr_allowed_plates)
+    return full_status({"ok": True, "message": f"Номер {normalized} удалён", "plates": sorted(app.state.anpr.cfg.anpr_allowed_plates)})
 
 
 @app.post("/api/open")
