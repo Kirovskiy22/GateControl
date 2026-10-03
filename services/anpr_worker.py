@@ -49,6 +49,7 @@ class AnprWorker:
             open_on_detect=self.cfg.anpr_open_on_detect,
         )
         self._cooldown = OpenCooldown(self.cfg.anpr_open_cooldown_sec)
+        self._recent_opened: dict[str, float] = {}
         self._auto_close = AutoCloseTracker(
             self.cfg.anpr_close_after_sec,
             enabled=self.cfg.anpr_auto_close,
@@ -164,11 +165,19 @@ class AnprWorker:
         with self._lock:
             return self._jpeg
 
+    def set_allowed_plates(self, plates: list[str]) -> None:
+        """Apply the live whitelist without restarting the RTSP worker."""
+        self._policy.allowed = {normalize_plate(item) for item in plates if item}
+        self._last_logged = None
+        self._push_event(f"Список разрешённых номеров обновлён ({len(plates)})", "info")
+
     def get_status(self) -> dict:
         with self._lock:
             return {
                 "enabled": self.cfg.anpr_enabled,
                 "rtsp_url": self.cfg.rtsp_url,
+                "allowed_plates": sorted(self.cfg.anpr_allowed_plates),
+                "whitelist_only": self.cfg.anpr_whitelist_only,
                 "flip_horizontal": self.cfg.anpr_flip_horizontal,
                 "has_frame": self._jpeg is not None,
                 "camera": self._camera,
@@ -423,6 +432,13 @@ class AnprWorker:
                 )
             return
 
+        same_plate_cooldown = self.cfg.anpr_same_plate_cooldown_sec
+        last_opened = self._recent_opened.get(decision.plate)
+        if last_opened is not None and now - last_opened < same_plate_cooldown:
+            left = same_plate_cooldown - (now - last_opened)
+            self._remember_plate(decision.plate, decision.confidence, f"повторное открытие заблокировано ещё {left:.0f} с")
+            return
+
         blocked, why = self._cooldown.blocked(now)
         if blocked:
             self._remember_plate(decision.plate, decision.confidence, why)
@@ -431,6 +447,12 @@ class AnprWorker:
         ok, message = self._open_gate()
         if ok:
             self._cooldown.mark(decision.plate, now)
+            self._recent_opened[decision.plate] = now
+            self._recent_opened = {
+                plate: opened_at
+                for plate, opened_at in self._recent_opened.items()
+                if now - opened_at < max(same_plate_cooldown, self.cfg.anpr_open_cooldown_sec)
+            }
             self._auto_close.observe_plate()
             detail = message or decision.reason
             self._remember_plate(decision.plate, decision.confidence, f"открыт: {detail}")
