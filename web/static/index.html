@@ -28,7 +28,7 @@
 
     .container {
       width: 100%;
-      max-width: 480px;
+      max-width: 980px;
     }
 
     .stream-card,
@@ -44,6 +44,12 @@
       display: block;
       margin-bottom: 8px;
     }
+
+    .camera-preview { position:relative; width:100%; aspect-ratio:16 / 9; min-height:180px; max-height:560px; margin-bottom:14px; border-radius:10px; overflow:hidden; background:#080d1b; display:flex; align-items:center; justify-content:center; color:var(--muted); }
+    .camera-preview img { width:100%; height:100%; object-fit:contain; }
+    .camera-placeholder { position:absolute; text-align:center; padding:16px; color:var(--muted); }
+    .camera-preview.has-frame .camera-placeholder { display:none; }
+    .stream-title-row { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px; }
 
     #rtsp-url {
       width: 100%;
@@ -137,12 +143,9 @@
       height: auto;
     }
 
-    .buttons {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      margin-bottom: 12px;
-    }
+    .buttons { display:flex; flex-direction:row; gap:12px; margin-bottom:12px; }
+    .buttons button { flex:1; }
+    @media (max-width: 600px) { .buttons { flex-direction:column; } .anpr-meta { flex-wrap:wrap; } }
 
     button {
       border: none;
@@ -203,14 +206,22 @@
 <body>
   <div class="container">
     <div class="stream-card">
-      <label class="status-label" for="rtsp-url">RTSP-поток</label>
+      <div class="stream-title-row">
+        <div class="status-label">Трансляция с камеры</div>
+        <div id="anpr-camera" class="anpr-meta bad" style="margin:0">выключена</div>
+      </div>
+      <div id="snapshot-wrap" class="camera-preview">
+        <div class="camera-placeholder">Предпросмотр появится после подключения RTSP-потока</div>
+        <img id="anpr-snapshot" alt="Предпросмотр с камеры">
+      </div>
+      <label class="status-label" for="rtsp-url">Адрес RTSP-потока</label>
       <input id="rtsp-url" type="text" placeholder="rtsp://user:pass@host:554/stream" autocomplete="off" spellcheck="false">
       <div class="stream-row">
         <label class="flip-row">
           <input id="rtsp-flip" type="checkbox">
           зеркально
         </label>
-        <button id="btn-stream" class="btn-stream" type="button">Подключить</button>
+        <button id="btn-stream" class="btn-stream" type="button">Подключить камеру</button>
       </div>
     </div>
 
@@ -236,9 +247,6 @@
           Решение
           <strong id="anpr-reason">ожидание</strong>
         </div>
-      </div>
-      <div id="snapshot-wrap" class="snapshot-wrap">
-        <img id="anpr-snapshot" alt="Кадр с камеры">
       </div>
     </div>
 
@@ -348,6 +356,7 @@
         lastCameraState = anpr.camera;
         if (anpr.camera !== "connected") {
           snapshotEl.removeAttribute("src");
+          snapshotWrapEl.classList.remove("has-frame");
         }
       }
       if (showSnapshot && anpr.camera === "connected" && anpr.has_frame) {
@@ -404,8 +413,8 @@
 
     function refreshSnapshot() {
       snapshotTick += 1;
-      snapshotEl.onload = () => snapshotWrapEl.classList.add("visible");
-      snapshotEl.onerror = () => snapshotWrapEl.classList.remove("visible");
+      snapshotEl.onload = () => snapshotWrapEl.classList.add("has-frame");
+      snapshotEl.onerror = () => snapshotWrapEl.classList.remove("has-frame");
       snapshotEl.src = "/api/anpr/snapshot?t=" + snapshotTick;
     }
 
@@ -429,7 +438,7 @@
       }
       btnStreamEl.disabled = true;
       snapshotEl.removeAttribute("src");
-      snapshotWrapEl.classList.add("visible");
+      snapshotWrapEl.classList.remove("has-frame");
       try {
         const res = await fetch("/api/anpr/stream", {
           method: "POST",
