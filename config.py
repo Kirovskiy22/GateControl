@@ -96,6 +96,10 @@ class Config:
         return float(self.data.get("anpr_open_cooldown_sec", 20))
 
     @property
+    def anpr_same_plate_cooldown_sec(self) -> float:
+        return max(0.0, float(self.data.get("anpr_same_plate_cooldown_sec", 60)))
+
+    @property
     def anpr_auto_close(self) -> bool:
         return bool(self.data.get("anpr_auto_close", True))
 
