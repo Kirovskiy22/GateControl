@@ -166,6 +166,20 @@
     .btn-close { background: var(--red); color: #fff; }
     .btn-refresh { background: #0f3460; color: var(--text); font-weight: 600; }
 
+    .plates-card { background:var(--surface); border-radius:12px; padding:16px; margin-bottom:12px; }
+    .plates-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
+    .plates-head h2 { font-size:.95rem; color:var(--muted); }
+    .plate-form { display:flex; gap:8px; margin-bottom:12px; }
+    .plate-form input { min-width:0; flex:1; border:1px solid #0f3460; border-radius:8px; background:#0f3460; color:var(--text); padding:10px 12px; font-size:1rem; text-transform:uppercase; }
+    .plate-form button { background:var(--green); color:#111; padding:10px 16px; font-size:.9rem; }
+    .plate-table { width:100%; border-collapse:collapse; }
+    .plate-table th,.plate-table td { text-align:left; padding:9px 6px; border-bottom:1px solid #293656; }
+    .plate-table th { color:var(--muted); font-size:.78rem; font-weight:600; }
+    .plate-table td:last-child,.plate-table th:last-child { text-align:right; width:90px; }
+    .plate-delete { padding:6px 9px; font-size:.8rem; background:#54263b; color:#fff; }
+    .plates-empty { color:var(--muted); text-align:center; padding:14px 4px; }
+    @media (max-width:600px) { .plate-form { flex-direction:column; } }
+
     .log-card h2 {
       font-size: 0.95rem;
       color: var(--muted);
@@ -250,6 +264,16 @@
       </div>
     </div>
 
+    <div class="plates-card">
+      <div class="plates-head"><h2>РАЗРЕШЁННЫЕ НОМЕРА</h2><span id="plates-count" class="anpr-meta">0</span></div>
+      <form id="plate-form" class="plate-form">
+        <input id="plate-input" type="text" maxlength="16" placeholder="А123ВС77" autocomplete="off" aria-label="Государственный номер" required>
+        <button type="submit">Добавить номер</button>
+      </form>
+      <div id="plates-list"></div>
+      <div style="color:var(--muted);font-size:.8rem;margin-top:10px">При включённом белом списке START отправляется только для разрешённого номера при достаточной уверенности распознавания.</div>
+    </div>
+
     <div class="buttons">
       <button id="btn-open" class="btn-open">START · ОТКРЫТЬ / СТОП</button>
       <button id="btn-close" class="btn-close">STOP · СНЯТЬ ВЫХОДЫ ESP32</button>
@@ -277,6 +301,10 @@
     const rtspUrlEl = document.getElementById("rtsp-url");
     const rtspFlipEl = document.getElementById("rtsp-flip");
     const btnStreamEl = document.getElementById("btn-stream");
+    const plateFormEl = document.getElementById("plate-form");
+    const plateInputEl = document.getElementById("plate-input");
+    const platesListEl = document.getElementById("plates-list");
+    const platesCountEl = document.getElementById("plates-count");
     const buttons = [
       document.getElementById("btn-open"),
       document.getElementById("btn-close"),
@@ -323,6 +351,7 @@
 
     function renderAnpr(anpr) {
       if (!anpr) return;
+      renderPlates(anpr.allowed_plates || []);
 
       const plate = anpr.last_plate_display || anpr.last_plate;
       anprPlateEl.textContent = plate || "нет номера";
@@ -411,6 +440,66 @@
       }
     }
 
+    function renderPlates(plates) {
+      platesListEl.replaceChildren();
+      platesCountEl.textContent = String(plates.length);
+      if (!plates.length) {
+        const empty = document.createElement("div");
+        empty.className = "plates-empty";
+        empty.textContent = "Список пока пуст";
+        platesListEl.appendChild(empty);
+        return;
+      }
+      const table = document.createElement("table");
+      table.className = "plate-table";
+      const head = document.createElement("thead");
+      head.innerHTML = "<tr><th>Номер</th><th>Действие</th></tr>";
+      const body = document.createElement("tbody");
+      plates.forEach((plate) => {
+        const tr = document.createElement("tr");
+        const name = document.createElement("td");
+        name.textContent = plate;
+        const action = document.createElement("td");
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "plate-delete";
+        remove.textContent = "Удалить";
+        remove.addEventListener("click", () => deletePlate(plate));
+        action.appendChild(remove);
+        tr.append(name, action);
+        body.appendChild(tr);
+      });
+      table.append(head, body);
+      platesListEl.appendChild(table);
+    }
+
+    async function addPlate(event) {
+      event.preventDefault();
+      const plate = plateInputEl.value.trim().toUpperCase();
+      if (!plate) return;
+      try {
+        const res = await fetch("/api/anpr/plates", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plate }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(formatApiError(data, res));
+        renderStatus(data);
+        plateInputEl.value = "";
+        showToast(data.message || "Номер добавлен");
+      } catch (err) { appendLog(String(err), "error"); showToast(String(err)); }
+    }
+
+    async function deletePlate(plate) {
+      try {
+        const res = await fetch("/api/anpr/plates/" + encodeURIComponent(plate), { method: "DELETE" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(formatApiError(data, res));
+        renderStatus(data);
+        showToast(data.message || "Номер удалён");
+      } catch (err) { appendLog(String(err), "error"); showToast(String(err)); }
+    }
+
     function refreshSnapshot() {
       snapshotTick += 1;
       snapshotEl.onload = () => snapshotWrapEl.classList.add("has-frame");
@@ -468,6 +557,7 @@
     document.getElementById("btn-close").addEventListener("click", () => apiCall("POST", "/api/stop"));
     document.getElementById("btn-refresh").addEventListener("click", () => apiCall("POST", "/api/refresh"));
     btnStreamEl.addEventListener("click", connectStream);
+    plateFormEl.addEventListener("submit", addPlate);
     rtspUrlEl.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") connectStream();
     });
