@@ -215,8 +215,9 @@
     </div>
 
     <div class="status-card">
-      <div class="status-label">Состояние шлагбаума</div>
-      <div id="status" class="status-value unknown">неизвестно</div>
+      <div class="status-label">Управление приводом</div>
+      <div id="status" class="status-value unknown">положение неизвестно</div>
+      <div style="color:var(--muted);font-size:.85rem;margin-top:8px">Один вход START: команда переключает действие привода. Приложение не получает датчик положения.</div>
     </div>
 
     <div class="status-card">
@@ -242,8 +243,8 @@
     </div>
 
     <div class="buttons">
-      <button id="btn-open" class="btn-open">ПОДНЯТЬ</button>
-      <button id="btn-close" class="btn-close">ОПУСТИТЬ</button>
+      <button id="btn-open" class="btn-open">START · ОТКРЫТЬ / СТОП</button>
+      <button id="btn-close" class="btn-close">STOP · СНЯТЬ ВЫХОДЫ ESP32</button>
       <button id="btn-refresh" class="btn-refresh">ОБНОВИТЬ</button>
     </div>
 
@@ -368,12 +369,10 @@
     }
 
     function renderStatus(data) {
-      const label = data.label || "неизвестно";
+      const label = data.label || "положение неизвестно";
       statusEl.textContent = label;
       statusEl.className = "status-value";
-      if (data.state === 0) statusEl.classList.add("open");
-      else if (data.state === 1) statusEl.classList.add("closed");
-      else statusEl.classList.add("unknown");
+      statusEl.classList.add("unknown");
       if (data.anpr) renderAnpr(data.anpr);
     }
 
@@ -457,7 +456,7 @@
     }
 
     document.getElementById("btn-open").addEventListener("click", () => apiCall("POST", "/api/open"));
-    document.getElementById("btn-close").addEventListener("click", () => apiCall("POST", "/api/close"));
+    document.getElementById("btn-close").addEventListener("click", () => apiCall("POST", "/api/stop"));
     document.getElementById("btn-refresh").addEventListener("click", () => apiCall("POST", "/api/refresh"));
     btnStreamEl.addEventListener("click", connectStream);
     rtspUrlEl.addEventListener("keydown", (ev) => {
@@ -467,7 +466,7 @@
     appendLog("Веб-панель запущена");
     apiCall("GET", "/api/status").then((data) => {
       if (!data) return;
-      if (!data.api_version || data.api_version < 2) {
+      if (!data.api_version || data.api_version < 3) {
         appendLog("Сервер устарел — перезапустите: python web_server.py", "error");
         showToast("Перезапустите web_server.py");
       } else {
