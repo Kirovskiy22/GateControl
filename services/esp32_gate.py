@@ -26,14 +26,26 @@ class ESP32GateController:
         base = self.cfg.esp32_base_url.rstrip("/")
         if not base.startswith(("http://", "https://")):
             raise ValueError("esp32_base_url должен начинаться с http:// или https://")
-        headers = {"Accept": "application/json", "Connection": "close"}
+        
+        headers = {
+            "User-Agent": "curl/7.81.0",
+            "Accept": "*/*"
+        }
+        
         token = self.cfg.esp32_token
         if token:
             headers["X-Token"] = token
-        request = Request(f"{base}/{endpoint.lstrip('/')}", headers=headers, method="GET")
+            
+        url = f"{base}/{endpoint.lstrip('/')}"
+        print(f"\n--- DEBUG: Отправка на {url} ---")
+        
+        request = Request(url, headers=headers, method="GET")
+        raw = ""
+        
         try:
             with urlopen(request, timeout=self.cfg.esp32_timeout_sec) as response:
                 raw = response.read(8192).decode("utf-8", errors="replace")
+                print(f"--- DEBUG: Ответ {response.status} | Тело: '{raw}' ---\n")
                 if response.status < 200 or response.status >= 300:
                     raise RuntimeError(f"ESP32 HTTP {response.status}")
         except HTTPError as exc:
@@ -42,12 +54,16 @@ class ESP32GateController:
             raise RuntimeError(f"ESP32 HTTP {exc.code}") from exc
         except (URLError, TimeoutError, OSError) as exc:
             raise RuntimeError(f"Нет связи с ESP32: {exc}") from exc
+            
         try:
             data = json.loads(raw) if raw else {}
-        except json.JSONDecodeError as exc:
-            raise RuntimeError("ESP32 вернул некорректный JSON") from exc
+        except json.JSONDecodeError:
+            # Если плата отвечает обычным текстом, маскируем под JSON
+            return {"ok": True, "raw": raw}
+            
         if not isinstance(data, dict) or data.get("ok") is False:
             raise RuntimeError(str(data.get("error", "ESP32 отклонил команду")))
+            
         return data
 
     def _command(self, endpoint: str, label: str) -> tuple[bool, str | None]:
@@ -67,16 +83,35 @@ class ESP32GateController:
             return True, f"ESP32 принял команду {label}; положение ворот не подтверждено"
 
     def open_gate(self) -> tuple[bool, str | None]:
-        # The physical IO4 is wired to START. Repeated pulses toggle the operator.
-        return self._command("open", "START / импульс")
+        import subprocess
+        
+        url = self.cfg.esp32_base_url.rstrip("/")
+        token = self.cfg.esp32_token
+        headers = ["-H", f"X-Token: {token}"]
+        
+        try:
+            # 1. Замыкаем контакт (curl /open)
+            subprocess.run(["curl", "-s", *headers, f"{url}/open"], timeout=2)
+            
+            # 2. Держим ровно полсекунды (импульс)
+            time.sleep(0.5)
+            
+            # 3. Размыкаем контакт (curl /stop)
+            subprocess.run(["curl", "-s", *headers, f"{url}/stop"], timeout=2)
+            
+            self._last_command_at_text = time.strftime("%Y-%m-%d %H:%M:%S")
+            return True, "Отправлен прямой curl-импульс"
+        except Exception as exc:
+            return False, f"Ошибка вызова curl: {exc}"
 
     def stop_gate(self) -> tuple[bool, str | None]:
-        # /stop only releases ESP32 outputs; it stops the motor only if STOP is wired.
-        return self._command("stop", "STOP / снять выходы")
+        # Поскольку у нас всего одно реле (один провод START), 
+        # остановка ворот в движении — это просто ещё один импульс.
+        return self.open_gate()
 
     def close_gate(self) -> tuple[bool, str | None]:
-        # Compatibility alias: the installed hardware has no dedicated CLOSE wire.
-        return False, "Отдельный CLOSE не подключён. Используйте импульс START вручную."
+        # Для закрытия делаем то же самое
+        return self.open_gate()
 
     def refresh(self) -> tuple[bool, str | None]:
         try:

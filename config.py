@@ -21,7 +21,7 @@ class Config:
 
     @property
     def esp32_token(self) -> str:
-        return os.environ.get("GATECONTROL_ESP32_TOKEN", "")
+        return os.environ.get("GATECONTROL_ESP32_TOKEN", "CTrehyf1")
 
     @property
     def esp32_timeout_sec(self) -> float:

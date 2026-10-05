@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 
 from dataclasses import dataclass
 
@@ -70,6 +71,7 @@ class PlateReader:
             self._easy_failed = True
 
     def read(self, frame, *, roi_limited: bool = False) -> list[PlateRead]:
+        started = time.perf_counter()
         try:
             alpr_reads, yolo_crops = self._read_alpr(frame)
         except Exception:
@@ -109,7 +111,13 @@ class PlateReader:
             except Exception:
                 logger.exception("Ошибка EasyOCR")
 
-        return self._rank(self._merge_fragments(alpr_reads + extra))
+        result = self._rank(self._merge_fragments(alpr_reads + extra))
+        logger.debug(
+            "ALPR read: frame=%sx%s roi=%s primary=%d extra=%d results=%d elapsed=%.3fs",
+            frame.shape[1], frame.shape[0], roi_limited,
+            len(alpr_reads), len(extra), len(result), time.perf_counter() - started,
+        )
+        return result
 
     def _merge_fragments(self, combined: list[PlateRead]) -> list[PlateRead]:
         bodies: list[PlateRead] = []
@@ -143,7 +151,7 @@ class PlateReader:
                 rest.append(item)
 
         regions.sort(key=lambda pair: pair[1], reverse=True)
-        bodies.sort(key=lambda item: item.confidence)
+        bodies.sort(key=lambda item: item.confidence, reverse=True)
         letters.sort(key=lambda pair: pair[1], reverse=True)
         used_regions: set[str] = set()
         used_bodies: set[str] = set()
