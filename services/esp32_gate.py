@@ -83,35 +83,13 @@ class ESP32GateController:
             return True, f"ESP32 принял команду {label}; положение ворот не подтверждено"
 
     def open_gate(self) -> tuple[bool, str | None]:
-        import subprocess
-        
-        url = self.cfg.esp32_base_url.rstrip("/")
-        token = self.cfg.esp32_token
-        headers = ["-H", f"X-Token: {token}"]
-        
-        try:
-            # 1. Замыкаем контакт (curl /open)
-            subprocess.run(["curl", "-s", *headers, f"{url}/open"], timeout=2)
-            
-            # 2. Держим ровно полсекунды (импульс)
-            time.sleep(0.5)
-            
-            # 3. Размыкаем контакт (curl /stop)
-            subprocess.run(["curl", "-s", *headers, f"{url}/stop"], timeout=2)
-            
-            self._last_command_at_text = time.strftime("%Y-%m-%d %H:%M:%S")
-            return True, "Отправлен прямой curl-импульс"
-        except Exception as exc:
-            return False, f"Ошибка вызова curl: {exc}"
+        return self._command("open", "open")
 
     def stop_gate(self) -> tuple[bool, str | None]:
-        # Поскольку у нас всего одно реле (один провод START), 
-        # остановка ворот в движении — это просто ещё один импульс.
-        return self.open_gate()
+        return self._command("stop", "stop")
 
     def close_gate(self) -> tuple[bool, str | None]:
-        # Для закрытия делаем то же самое
-        return self.open_gate()
+        return False, "CLOSE не подключён"
 
     def refresh(self) -> tuple[bool, str | None]:
         try:

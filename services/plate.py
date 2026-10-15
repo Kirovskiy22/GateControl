@@ -17,7 +17,7 @@ LATIN_TO_CYRILLIC = str.maketrans(
         "C": "С",
         "T": "Т",
         "Y": "У",
-        "V": "У"
+        "V": "У",
         "X": "Х",
     }
 )
