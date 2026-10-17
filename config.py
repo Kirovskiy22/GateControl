@@ -32,22 +32,6 @@ class Config:
         return max(0.0, float(self.data.get("esp32_command_cooldown_sec", 1.5)))
 
     @property
-    def ip(self):
-        return self.data["ip"]
-
-    @property
-    def port(self):
-        return self.data["port"]
-
-    @property
-    def community(self):
-        return self.data["community"]
-
-    @property
-    def oid(self):
-        return self.data["oid_do1"]
-
-    @property
     def do1_mode(self) -> str:
         return self.data.get("do1_mode", "hold")
 
@@ -141,10 +125,6 @@ class Config:
     @property
     def anpr_easyocr_enabled(self) -> bool:
         return bool(self.data.get("anpr_easyocr_enabled", False))
-
-    @property
-    def snmp_poll_interval_sec(self) -> float:
-        return float(self.data.get("snmp_poll_interval_sec", 15))
 
     @property
     def anpr_auto_tune(self) -> bool:

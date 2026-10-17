@@ -242,7 +242,7 @@
     <div class="status-card">
       <div class="status-label">Управление приводом</div>
       <div id="status" class="status-value unknown">положение неизвестно</div>
-      <div style="color:var(--muted);font-size:.85rem;margin-top:8px">Один вход START: команда переключает действие привода. Приложение не получает датчик положения.</div>
+      <div style="color:var(--muted);font-size:.85rem;margin-top:8px">Один вход START: команда переключает действие привода.</div>
     </div>
 
     <div class="status-card">
@@ -410,7 +410,13 @@
       const label = data.label || "положение неизвестно";
       statusEl.textContent = label;
       statusEl.className = "status-value";
-      statusEl.classList.add("unknown");
+      if (data.state === "OPEN") {
+        statusEl.classList.add("open");
+      } else if (data.state === "NOT_OPEN") {
+        statusEl.classList.add("closed");
+      } else {
+        statusEl.classList.add("unknown");
+      }
       if (data.anpr) renderAnpr(data.anpr);
     }
 
