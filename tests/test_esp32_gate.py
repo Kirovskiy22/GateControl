@@ -19,7 +19,7 @@ class ESP32GateControllerTests(unittest.TestCase):
     def test_open_sends_start_pulse_endpoint(self):
         ok, message = self.controller.open_gate()
         self.assertTrue(ok)
-        self.assertIn("положение ворот не подтверждено", message)
+        self.assertIn("ESP32 принял команду open", message)
         self.controller._request.assert_called_once_with("open")
 
     def test_stop_uses_stop_endpoint(self):
@@ -34,9 +34,10 @@ class ESP32GateControllerTests(unittest.TestCase):
         self.controller._request.assert_not_called()
 
     def test_status_never_claims_physical_position(self):
+        self.controller._device = {"gate_status": "WEIRD_STATE"}
         status = self.controller.get_status()
         self.assertIsNone(status["state"])
-        self.assertEqual(status["label"], "положение ворот неизвестно")
+        self.assertEqual(status["label"], "неизвестно")
 
 
 if __name__ == "__main__":

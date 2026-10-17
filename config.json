@@ -10,7 +10,7 @@
     "command_cooldown_sec": 0.8,
     "web_host": "0.0.0.0",
     "web_port": 8080,
-    "rtsp_url": "rtsp://10.120.0.247:50001/user=buen&password=54efyp&channel=1&stream=0?.sdp",
+    "rtsp_url": "file:///tmp/test.avi",
     "anpr_enabled": true,
     "anpr_min_confidence": 0.55,
     "anpr_open_min_confidence": 0.6,

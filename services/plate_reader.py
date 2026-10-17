@@ -177,6 +177,7 @@ class PlateReader:
             merged.append(
                 PlateRead(text=merged_text, confidence=merged_conf, source=body.source)
             )
+            used_bodies.add(body.text)
 
         for partial, pconf, source in partials:
             if partial in used_partials:

@@ -49,6 +49,12 @@
     .camera-preview img { width:100%; height:100%; object-fit:contain; }
     .camera-placeholder { position:absolute; text-align:center; padding:16px; color:var(--muted); }
     .camera-preview.has-frame .camera-placeholder { display:none; }
+    #roi-canvas { position:absolute; top:0; left:0; width:100%; height:100%; z-index:10; cursor:crosshair; display:none; pointer-events:none; }
+    #roi-canvas.active { display:block; pointer-events:auto; }
+    .roi-toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:10px; font-size:0.9rem; }
+    .roi-buttons { display:flex; gap:8px; }
+    .btn-roi { background:#2a3a5c; color:var(--text); border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:0.85rem; }
+    .btn-roi.active { background:var(--green); color:#111; }
     .stream-title-row { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px; }
 
     #rtsp-url {
@@ -226,9 +232,17 @@
       </div>
       <div id="snapshot-wrap" class="camera-preview">
         <div class="camera-placeholder">Предпросмотр появится после подключения RTSP-потока</div>
-        <img id="anpr-snapshot" alt="Предпросмотр с камеры">
+        <img id="anpr-snapshot" alt="Предпросмотр с камеры" draggable="false">
+        <canvas id="roi-canvas"></canvas>
       </div>
-      <label class="status-label" for="rtsp-url">Адрес RTSP-потока</label>
+      <div class="roi-toolbar" id="roi-toolbar" style="display:none;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="roi-enable"> Включить ROI</label>
+        <div class="roi-buttons">
+          <button type="button" class="btn-roi" id="btn-draw-roi">Рисовать зону</button>
+          <button type="button" class="btn-roi" id="btn-save-roi">Сохранить</button>
+        </div>
+      </div>
+      <label class="status-label" for="rtsp-url" style="margin-top:12px;">Адрес RTSP-потока</label>
       <input id="rtsp-url" type="text" placeholder="rtsp://user:pass@host:554/stream" autocomplete="off" spellcheck="false">
       <div class="stream-row">
         <label class="flip-row">
@@ -242,7 +256,7 @@
     <div class="status-card">
       <div class="status-label">Управление приводом</div>
       <div id="status" class="status-value unknown">положение неизвестно</div>
-      <div style="color:var(--muted);font-size:.85rem;margin-top:8px">Один вход START: команда переключает действие привода. Приложение не получает датчик положения.</div>
+      <div style="color:var(--muted);font-size:.85rem;margin-top:8px">Один вход START: команда переключает действие привода.</div>
     </div>
 
     <div class="status-card">
@@ -301,6 +315,11 @@
     const rtspUrlEl = document.getElementById("rtsp-url");
     const rtspFlipEl = document.getElementById("rtsp-flip");
     const btnStreamEl = document.getElementById("btn-stream");
+    const roiToolbarEl = document.getElementById("roi-toolbar");
+    const roiCanvasEl = document.getElementById("roi-canvas");
+    const roiEnableCb = document.getElementById("roi-enable");
+    const btnDrawRoi = document.getElementById("btn-draw-roi");
+    const btnSaveRoi = document.getElementById("btn-save-roi");
     const plateFormEl = document.getElementById("plate-form");
     const plateInputEl = document.getElementById("plate-input");
     const platesListEl = document.getElementById("plates-list");
@@ -315,6 +334,13 @@
     let streamPrefill = false;
     let lastCameraState = "";
     let serverOnline = true;
+
+    // ROI state
+    let roi = { enabled: false, x0: 0.40, y0: 0.08, x1: 1.0, y1: 1.0 };
+    let isDrawing = false;
+    let isDrawingMode = false;
+    let startX = 0, startY = 0;
+    let currentX = 0, currentY = 0;
 
     function setButtonsDisabled(disabled) {
       buttons.forEach((btn) => (btn.disabled = disabled));
@@ -349,9 +375,57 @@
       return map[anpr.camera] || anpr.camera || "неизвестно";
     }
 
+    function resizeCanvas() {
+      if (roiCanvasEl.width !== snapshotEl.clientWidth || roiCanvasEl.height !== snapshotEl.clientHeight) {
+        roiCanvasEl.width = snapshotEl.clientWidth;
+        roiCanvasEl.height = snapshotEl.clientHeight;
+        drawRoiCanvas();
+      }
+    }
+
+    function drawRoiCanvas() {
+      const ctx = roiCanvasEl.getContext('2d');
+      ctx.clearRect(0, 0, roiCanvasEl.width, roiCanvasEl.height);
+
+      if (!roiEnableCb.checked && !isDrawingMode) return;
+
+      let rx0, ry0, rx1, ry1;
+
+      if (isDrawing) {
+        rx0 = Math.min(startX, currentX);
+        ry0 = Math.min(startY, currentY);
+        rx1 = Math.max(startX, currentX);
+        ry1 = Math.max(startY, currentY);
+      } else {
+        rx0 = roi.x0 * roiCanvasEl.width;
+        ry0 = roi.y0 * roiCanvasEl.height;
+        rx1 = roi.x1 * roiCanvasEl.width;
+        ry1 = roi.y1 * roiCanvasEl.height;
+      }
+
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.fillRect(0, 0, roiCanvasEl.width, ry0); // top
+      ctx.fillRect(0, ry1, roiCanvasEl.width, roiCanvasEl.height - ry1); // bottom
+      ctx.fillRect(0, ry0, rx0, ry1 - ry0); // left
+      ctx.fillRect(rx1, ry0, roiCanvasEl.width - rx1, ry1 - ry0); // right
+
+      ctx.strokeStyle = isDrawingMode ? '#e94560' : '#4ecca3';
+      ctx.lineWidth = 2;
+      ctx.setLineDash(isDrawingMode ? [5, 5] : []);
+      ctx.strokeRect(rx0, ry0, rx1 - rx0, ry1 - ry0);
+    }
+
     function renderAnpr(anpr) {
       if (!anpr) return;
       renderPlates(anpr.allowed_plates || []);
+
+      if (anpr.roi) {
+        roi = { ...roi, ...anpr.roi };
+        roiEnableCb.checked = roi.enabled;
+        if (!isDrawingMode) {
+            drawRoiCanvas();
+        }
+      }
 
       const plate = anpr.last_plate_display || anpr.last_plate;
       anprPlateEl.textContent = plate || "нет номера";
@@ -390,10 +464,13 @@
       }
       if (showSnapshot && anpr.camera === "connected" && anpr.has_frame) {
         refreshSnapshot();
+        roiToolbarEl.style.display = "flex";
       } else if (anpr.camera === "connecting") {
         snapshotWrapEl.classList.add("visible");
+        roiToolbarEl.style.display = "flex";
       } else {
         snapshotWrapEl.classList.remove("visible");
+        roiToolbarEl.style.display = "none";
       }
 
       const events = anpr.events || [];
@@ -410,7 +487,13 @@
       const label = data.label || "положение неизвестно";
       statusEl.textContent = label;
       statusEl.className = "status-value";
-      statusEl.classList.add("unknown");
+      if (data.state === "OPEN") {
+        statusEl.classList.add("open");
+      } else if (data.state === "NOT_OPEN") {
+        statusEl.classList.add("closed");
+      } else {
+        statusEl.classList.add("unknown");
+      }
       if (data.anpr) renderAnpr(data.anpr);
     }
 
@@ -502,7 +585,10 @@
 
     function refreshSnapshot() {
       snapshotTick += 1;
-      snapshotEl.onload = () => snapshotWrapEl.classList.add("has-frame");
+      snapshotEl.onload = () => {
+        snapshotWrapEl.classList.add("has-frame");
+        resizeCanvas();
+      };
       snapshotEl.onerror = () => snapshotWrapEl.classList.remove("has-frame");
       snapshotEl.src = "/api/anpr/snapshot?t=" + snapshotTick;
     }
@@ -552,6 +638,111 @@
         btnStreamEl.disabled = false;
       }
     }
+
+    // ROI canvas events
+    function getPointerPos(e) {
+      const rect = roiCanvasEl.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      return {
+        x: clientX - rect.left,
+        y: clientY - rect.top
+      };
+    }
+
+    function startRoiDrawing(e) {
+      if (!isDrawingMode) return;
+      e.preventDefault();
+      const pos = getPointerPos(e);
+      startX = pos.x;
+      startY = pos.y;
+      currentX = startX;
+      currentY = startY;
+      isDrawing = true;
+      drawRoiCanvas();
+    }
+
+    function moveRoiDrawing(e) {
+      if (!isDrawing || !isDrawingMode) return;
+      e.preventDefault();
+      const pos = getPointerPos(e);
+      currentX = Math.max(0, Math.min(roiCanvasEl.width, pos.x));
+      currentY = Math.max(0, Math.min(roiCanvasEl.height, pos.y));
+      drawRoiCanvas();
+    }
+
+    function endRoiDrawing() {
+      if (!isDrawing || !isDrawingMode) return;
+      isDrawing = false;
+      const rx0 = Math.min(startX, currentX) / roiCanvasEl.width;
+      const ry0 = Math.min(startY, currentY) / roiCanvasEl.height;
+      const rx1 = Math.max(startX, currentX) / roiCanvasEl.width;
+      const ry1 = Math.max(startY, currentY) / roiCanvasEl.height;
+
+      if (rx1 - rx0 > 0.05 && ry1 - ry0 > 0.05) {
+        roi.x0 = rx0;
+        roi.y0 = ry0;
+        roi.x1 = rx1;
+        roi.y1 = ry1;
+      }
+      drawRoiCanvas();
+    }
+
+    roiCanvasEl.addEventListener('mousedown', startRoiDrawing);
+    roiCanvasEl.addEventListener('mousemove', moveRoiDrawing);
+    window.addEventListener('mouseup', endRoiDrawing);
+    roiCanvasEl.addEventListener('touchstart', startRoiDrawing, {passive: false});
+    roiCanvasEl.addEventListener('touchmove', moveRoiDrawing, {passive: false});
+    window.addEventListener('touchend', endRoiDrawing);
+    window.addEventListener('resize', resizeCanvas);
+
+    roiEnableCb.addEventListener("change", () => {
+      roi.enabled = roiEnableCb.checked;
+      drawRoiCanvas();
+    });
+
+    btnDrawRoi.addEventListener("click", () => {
+      isDrawingMode = !isDrawingMode;
+      if (isDrawingMode) {
+        btnDrawRoi.classList.add("active");
+        roiEnableCb.checked = true;
+        roi.enabled = true;
+        roiCanvasEl.classList.add("active");
+        showToast("Выделите область на видео");
+      } else {
+        btnDrawRoi.classList.remove("active");
+        roiCanvasEl.classList.remove("active");
+      }
+      drawRoiCanvas();
+    });
+
+    btnSaveRoi.addEventListener("click", async () => {
+      if (isDrawingMode) {
+        isDrawingMode = false;
+        btnDrawRoi.classList.remove("active");
+        roiCanvasEl.classList.remove("active");
+        drawRoiCanvas();
+      }
+      try {
+        const res = await fetch("/api/config/roi", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            enabled: roiEnableCb.checked,
+            x0: roi.x0,
+            y0: roi.y0,
+            x1: roi.x1,
+            y1: roi.y1,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(formatApiError(data, res));
+        showToast(data.message || "Зона сохранена");
+      } catch (err) {
+        appendLog(String(err), "error");
+        showToast(String(err));
+      }
+    });
 
     document.getElementById("btn-open").addEventListener("click", () => apiCall("POST", "/api/open"));
     document.getElementById("btn-close").addEventListener("click", () => apiCall("POST", "/api/stop"));

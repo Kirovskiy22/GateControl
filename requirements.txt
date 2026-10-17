@@ -1,5 +1,4 @@
 customtkinter>=5.2.2
-pysnmp>=7.1.28
 fastapi>=0.115.0
 uvicorn>=0.32.0
 opencv-python-headless>=4.10.0

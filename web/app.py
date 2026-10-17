@@ -56,6 +56,30 @@ def api_status():
     return payload
 
 
+class RoiRequest(BaseModel):
+    enabled: bool
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
+
+@app.post("/api/config/roi")
+def api_set_roi(body: RoiRequest):
+    try:
+        app.state.anpr.cfg.data["anpr_roi_enabled"] = body.enabled
+        app.state.anpr.cfg.data["anpr_roi"] = {
+            "x0": body.x0,
+            "y0": body.y0,
+            "x1": body.x1,
+            "y1": body.y1,
+        }
+        app.state.anpr.cfg.save()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Не удалось сохранить config.json: {exc}") from exc
+    return full_status({"ok": True, "message": "Зона распознавания сохранена"})
+
+
 @app.get("/api/anpr/snapshot")
 async def api_anpr_snapshot():
     jpeg = app.state.anpr.last_jpeg()

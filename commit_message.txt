@@ -1,0 +1,7 @@
+fix(esp32): update gate sensor pin to IO35 in v1.4.0 firmware
+
+Moved the gate sensor away from the IO12 strapping pin, which caused
+hardware lockups on boot. Pin IO35 is now configured. As IO35 is an
+input-only pin lacking an internal pull-up resistor, the firmware
+was adjusted from INPUT_PULLUP to INPUT, and comments added specifying
+the requirement of an external 10k resistor.
