@@ -410,12 +410,14 @@ class AnprWorker:
         text = normalize_plate(read.text)
         if len(text) < 4:
             return False
-        return read.confidence >= self.cfg.anpr_min_confidence
+        # Lowered confidence threshold for considering a read meaningful to log attempts
+        return read.confidence >= max(0.1, self.cfg.anpr_min_confidence - 0.2)
 
     def _should_log_decision(self, decision) -> bool:
         if not decision.plate or len(decision.plate) < 4:
             return False
-        if decision.confidence < self.cfg.anpr_min_confidence:
+        # Log if confidence is somewhat close to minimum to track failed attempts
+        if decision.confidence < max(0.1, self.cfg.anpr_min_confidence - 0.2):
             return False
         return True
 

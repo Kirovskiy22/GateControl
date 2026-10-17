@@ -33,11 +33,11 @@ class ESP32GateControllerTests(unittest.TestCase):
         self.assertIn("CLOSE не подключён", message)
         self.controller._request.assert_not_called()
 
-    def test_status_reports_sensor_state(self):
-        self.controller._device = {"gate_status": "OPEN"}
+    def test_status_never_claims_physical_position(self):
+        self.controller._device = {"gate_status": "WEIRD_STATE"}
         status = self.controller.get_status()
-        self.assertEqual(status["state"], "OPEN")
-        self.assertEqual(status["label"], "открыты")
+        self.assertIsNone(status["state"])
+        self.assertEqual(status["label"], "неизвестно")
 
 
 if __name__ == "__main__":
