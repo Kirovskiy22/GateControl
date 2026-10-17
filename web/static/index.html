@@ -419,10 +419,12 @@
       if (!anpr) return;
       renderPlates(anpr.allowed_plates || []);
 
-      if (anpr.roi && !streamPrefill) {
+      if (anpr.roi) {
         roi = { ...roi, ...anpr.roi };
         roiEnableCb.checked = roi.enabled;
-        drawRoiCanvas();
+        if (!isDrawingMode) {
+            drawRoiCanvas();
+        }
       }
 
       const plate = anpr.last_plate_display || anpr.last_plate;

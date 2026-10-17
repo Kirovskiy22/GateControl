@@ -12,9 +12,11 @@
     GET /stop снимает все реле
     POST /update загрузка прошивки, требует X-Token
     ВАЖНО:
-        Датчик ИО 102-61 Б2П подключён между IO32 и GND.
-        Магниты вместе => геркон замкнут => GPIO32 LOW => ворота OPEN/подняты.
-        Магниты раздельно => GPIO32 HIGH => NOT_OPEN (это НЕ означает CLOSED).
+        Датчик ИО 102-61 Б2П подключён между IO35 и GND.
+        Магниты вместе => геркон замкнут => GPIO35 LOW => ворота OPEN/подняты.
+        Магниты раздельно => GPIO35 HIGH => NOT_OPEN (это НЕ означает CLOSED).
+        ВНИМАНИЕ: Пин 35 является только входом и НЕ имеет внутренней подтяжки.
+        Обязательно добавьте внешний резистор 10кОм между 3.3V и IO35.
         Успешный HTTP-ответ команды не подтверждает фактическое движение ворот.
         Не подключать напряжение платы управления ворот к GPIO ESP32.
     HTTP OTA:
@@ -54,10 +56,11 @@ static const bool RELAY_ACTIVE_HIGH = true;
 static const uint32_t PULSE_MS = 1000;
 static const bool HOLD_MODE = true;
 
-// Датчик: геркон между IO32 и GND.
+// Датчик: геркон между IO35 и GND.
 // Магниты вместе / контакт замкнут => ворота открыты.
-// Внимание: IO12 заменен на IO32, так как IO12 является strap-пином и мешал загрузке платы.
-static const int PIN_GATE_SENSOR = 32;
+// Внимание: IO12 заменен на IO35, так как IO12 является strap-пином.
+// Пин 35 не имеет подтяжки (pull-up), нужен внешний резистор на 10кОм к 3.3V.
+static const int PIN_GATE_SENSOR = 35;
 static const uint32_t SENSOR_DEBOUNCE_MS = 60;
 
 static const uint16_t HTTP_PORT = 80;
@@ -447,8 +450,9 @@ void setup() {
     Serial.printf("Firmware %s\n", FW_VERSION);
     Serial.println("================================");
 
-    // Initialize sensor early; GPIO12 is a boot strap pin, check physical setup.
-    pinMode(PIN_GATE_SENSOR, INPUT_PULLUP);
+    // Настраиваем как просто INPUT, так как пины 34-39 не имеют PULLUP.
+    // Нужна внешняя подтяжка к 3.3V!
+    pinMode(PIN_GATE_SENSOR, INPUT);
     sensorInitialized = false;
     updateSensor();
 
