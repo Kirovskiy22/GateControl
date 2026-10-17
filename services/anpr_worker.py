@@ -83,8 +83,12 @@ class AnprWorker:
     def set_stream(self, url: str, flip: bool | None = None) -> tuple[bool, str]:
         url = url.strip()
         lowered = url.lower()
-        if not lowered.startswith(("rtsp://", "http://", "https://")):
-            return False, "Нужен URL вида rtsp://... или http://..."
+
+        is_stream = lowered.startswith(("rtsp://", "http://", "https://"))
+        is_file = lowered.startswith("file://") or lowered.endswith((".mp4", ".avi", ".mkv", ".mov"))
+
+        if not (is_stream or is_file):
+            return False, "Нужен URL вида rtsp://..., http://... или путь к видеофайлу (.mp4, .avi)"
 
         with self._url_lock:
             self.cfg.set_rtsp_url(url)
@@ -242,17 +246,28 @@ class AnprWorker:
     def _open_capture(self):
         import cv2
 
-        cap = cv2.VideoCapture(self.cfg.rtsp_url, cv2.CAP_FFMPEG)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        lowered = self.cfg.rtsp_url.lower()
+        is_file = lowered.startswith("file://") or lowered.endswith((".mp4", ".avi", ".mkv", ".mov"))
+
+        if is_file:
+            path = self.cfg.rtsp_url
+            if path.startswith("file://"):
+                path = path[7:]
+            cap = cv2.VideoCapture(path)
+        else:
+            cap = cv2.VideoCapture(self.cfg.rtsp_url, cv2.CAP_FFMPEG)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
         if cap.isOpened():
             return cap
+
         cap.release()
         self._set_state(
             camera="disconnected",
-            error="Не удалось открыть RTSP-поток (проверьте ссылку — у Goodline она живёт ~60 мин)",
+            error="Не удалось открыть поток или файл (проверьте ссылку или путь)",
         )
         self._push_event(
-            "Не удалось открыть RTSP — получите новую ссылку в приложении камеры",
+            "Не удалось открыть источник видео",
             "error",
         )
         return None

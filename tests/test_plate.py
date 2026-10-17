@@ -386,6 +386,16 @@ class StreamUrlTests(unittest.TestCase):
         ok, message = worker.set_stream("camera.local/stream")
         self.assertFalse(ok)
         self.assertIn("rtsp", message.lower())
+        self.assertIn("путь к видеофайлу", message.lower())
+
+    def test_accepts_video_file_url(self):
+        from services.anpr_worker import AnprWorker
+
+        worker = AnprWorker(open_gate=lambda: (True, None))
+        ok, _ = worker.set_stream("test_video.mp4")
+        self.assertTrue(ok)
+        ok, _ = worker.set_stream("file:///tmp/test.avi")
+        self.assertTrue(ok)
 
 
 class StreamTuneTests(unittest.TestCase):
