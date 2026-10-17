@@ -12,11 +12,9 @@
     GET /stop снимает все реле
     POST /update загрузка прошивки, требует X-Token
     ВАЖНО:
-        Датчик ИО 102-61 Б2П подключён между IO12 и GND.
-        Магниты вместе => геркон замкнут => GPIO12 LOW => ворота OPEN/подняты.
-        Магниты раздельно => GPIO12 HIGH => NOT_OPEN (это НЕ означает CLOSED).
-        GPIO12 является strap-пином ESP32. Если уровень на нём мешает загрузке,
-    отключите датчик на время старта или перенесите его на подходящий GPIO.
+        Датчик ИО 102-61 Б2П подключён между IO32 и GND.
+        Магниты вместе => геркон замкнут => GPIO32 LOW => ворота OPEN/подняты.
+        Магниты раздельно => GPIO32 HIGH => NOT_OPEN (это НЕ означает CLOSED).
         Успешный HTTP-ответ команды не подтверждает фактическое движение ворот.
         Не подключать напряжение платы управления ворот к GPIO ESP32.
     HTTP OTA:
@@ -56,9 +54,10 @@ static const bool RELAY_ACTIVE_HIGH = true;
 static const uint32_t PULSE_MS = 1000;
 static const bool HOLD_MODE = true;
 
-// Датчик: геркон между IO12 и GND.
+// Датчик: геркон между IO32 и GND.
 // Магниты вместе / контакт замкнут => ворота открыты.
-static const int PIN_GATE_SENSOR = 12;
+// Внимание: IO12 заменен на IO32, так как IO12 является strap-пином и мешал загрузке платы.
+static const int PIN_GATE_SENSOR = 32;
 static const uint32_t SENSOR_DEBOUNCE_MS = 60;
 
 static const uint16_t HTTP_PORT = 80;
