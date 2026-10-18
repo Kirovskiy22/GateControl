@@ -250,6 +250,7 @@ class AnprAutoCloseTests(unittest.TestCase):
             anpr_close_after_sec = 5.0
             anpr_easyocr_enabled = False
             anpr_cv_fallback = False
+            anpr_same_plate_cooldown_sec = 60.0
             anpr_roi_enabled = False
             anpr_roi = {"x0": 0.0, "y0": 0.0, "x1": 1.0, "y1": 1.0}
 
@@ -288,6 +289,7 @@ class AnprAutoCloseTests(unittest.TestCase):
             anpr_close_after_sec = 5.0
             anpr_easyocr_enabled = False
             anpr_cv_fallback = False
+            anpr_same_plate_cooldown_sec = 60.0
             anpr_roi_enabled = False
             anpr_roi = {"x0": 0.0, "y0": 0.0, "x1": 1.0, "y1": 1.0}
 
@@ -384,6 +386,16 @@ class StreamUrlTests(unittest.TestCase):
         ok, message = worker.set_stream("camera.local/stream")
         self.assertFalse(ok)
         self.assertIn("rtsp", message.lower())
+        self.assertIn("путь к видеофайлу", message.lower())
+
+    def test_accepts_video_file_url(self):
+        from services.anpr_worker import AnprWorker
+
+        worker = AnprWorker(open_gate=lambda: (True, None))
+        ok, _ = worker.set_stream("test_video.mp4")
+        self.assertTrue(ok)
+        ok, _ = worker.set_stream("file:///tmp/test.avi")
+        self.assertTrue(ok)
 
 
 class StreamTuneTests(unittest.TestCase):
@@ -495,8 +507,8 @@ class PlateReaderMergeTests(unittest.TestCase):
 
         reader = PlateReader()
         combined = [
-            PlateRead("C108EC", 0.7, "alpr"),
-            PlateRead("A182MH", 0.8, "alpr"),
+            PlateRead("C108EC", 0.8, "alpr"),
+            PlateRead("A182MH", 0.7, "alpr"),
             PlateRead("154", 0.65, "ocr-crop"),
         ]
         merged = reader._merge_fragments(combined)
@@ -543,10 +555,7 @@ class PlateReaderFallbackTests(unittest.TestCase):
             if image is None:
                 continue
             if path.endswith("plate_crop.jpg"):
-                frame = np.zeros((474, 640, 3), dtype=np.uint8)
-                h, w = image.shape[:2]
-                frame[85 : 85 + h, 128 : 128 + w] = image
-                return frame
+                return image
             return image
         return None
 

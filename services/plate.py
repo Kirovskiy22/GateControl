@@ -17,7 +17,7 @@ LATIN_TO_CYRILLIC = str.maketrans(
         "C": "С",
         "T": "Т",
         "Y": "У",
-        "V": "У"
+        "V": "У",
         "X": "Х",
     }
 )
@@ -138,6 +138,11 @@ def repair_ocr_plate(raw: str) -> str:
             fixed = _fix_leading_one_as_letter(text[start : start + length])
             if fixed:
                 return fixed
+
+    # Check if the normalized string itself is a valid plate (possibly with region)
+    if is_valid_ru_plate(text):
+        return text
+
     return ""
 
 

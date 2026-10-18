@@ -80,54 +80,46 @@ class ESP32GateController:
             self._last_command = label
             self._last_command_at_text = time.strftime("%Y-%m-%d %H:%M:%S")
             self._device = data
-            return True, f"ESP32 принял команду {label}; положение ворот не подтверждено"
+            return True, f"ESP32 принял команду {label}"
 
     def open_gate(self) -> tuple[bool, str | None]:
-        import subprocess
-        
-        url = self.cfg.esp32_base_url.rstrip("/")
-        token = self.cfg.esp32_token
-        headers = ["-H", f"X-Token: {token}"]
-        
-        try:
-            # 1. Замыкаем контакт (curl /open)
-            subprocess.run(["curl", "-s", *headers, f"{url}/open"], timeout=2)
-            
-            # 2. Держим ровно полсекунды (импульс)
-            time.sleep(0.5)
-            
-            # 3. Размыкаем контакт (curl /stop)
-            subprocess.run(["curl", "-s", *headers, f"{url}/stop"], timeout=2)
-            
-            self._last_command_at_text = time.strftime("%Y-%m-%d %H:%M:%S")
-            return True, "Отправлен прямой curl-импульс"
-        except Exception as exc:
-            return False, f"Ошибка вызова curl: {exc}"
+        return self._command("open", "open")
 
     def stop_gate(self) -> tuple[bool, str | None]:
-        # Поскольку у нас всего одно реле (один провод START), 
-        # остановка ворот в движении — это просто ещё один импульс.
-        return self.open_gate()
+        return self._command("stop", "stop")
 
     def close_gate(self) -> tuple[bool, str | None]:
-        # Для закрытия делаем то же самое
-        return self.open_gate()
+        return False, "CLOSE не подключён"
 
     def refresh(self) -> tuple[bool, str | None]:
         try:
             self._device = self._request("status")
-            return True, "Связь с ESP32 проверена; положение ворот неизвестно"
+            return True, "Связь с ESP32 проверена"
         except Exception as exc:
             return False, str(exc)
 
     def get_status(self) -> dict:
+        state = self._device.get("gate_status")
+        reachable = bool(self._device)
+
+        if not reachable:
+            label = "нет связи"
+            state = None
+        elif state == "OPEN":
+            label = "открыты"
+        elif state == "NOT_OPEN":
+            label = "закрываются или закрыты"
+        else:
+            label = "неизвестно"
+            state = None
+
         return {
-            "state": None,
-            "label": "положение ворот неизвестно",
+            "state": state,
+            "label": label,
             "controller": "esp32",
             "esp32": {
                 "url": self.cfg.esp32_base_url,
-                "reachable": bool(self._device),
+                "reachable": reachable,
                 "fw": self._device.get("fw"),
                 "ip": self._device.get("ip"),
                 "eth": self._device.get("eth"),
