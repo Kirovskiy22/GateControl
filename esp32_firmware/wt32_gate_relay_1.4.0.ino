@@ -54,7 +54,7 @@ static const int PIN_STOP = 15;
 
 static const bool RELAY_ACTIVE_HIGH = true;
 static const uint32_t PULSE_MS = 1000;
-static const bool HOLD_MODE = true;
+static const bool HOLD_MODE = false;
 
 // Датчик: геркон между IO35 и GND.
 // Магниты вместе / контакт замкнут => ворота открыты.
