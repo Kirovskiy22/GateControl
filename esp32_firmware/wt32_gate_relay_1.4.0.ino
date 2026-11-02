@@ -459,6 +459,13 @@ void setup() {
     setupRelays();
 
     Serial.println("[ETH] init... IO0 must be FREE (not to GND)");
+    // Аппаратный сброс чипа LAN8720 перед инициализацией (решает проблему зависания Ethernet после пропадания питания)
+    pinMode(16, OUTPUT);
+    digitalWrite(16, LOW);
+    delay(100);
+    digitalWrite(16, HIGH);
+    delay(100);
+
 
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
     Network.onEvent(onNetworkEvent);
