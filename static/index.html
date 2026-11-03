@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gate Control v2</title>
+  <style>
+    :root { --bg:#141829; --surface:#1c243d; --surface2:#232d4b; --green:#4ecca3; --red:#e94560; --yellow:#f5a623; --text:#eaeaea; --muted:#8c98b8; --accent:#0f3460; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 16px; }
+
+    .layout { display: grid; grid-template-columns: 1fr 370px; gap: 18px; max-width: 1380px; margin: 0 auto; align-items: start; }
+    @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+
+    .card { background: var(--surface); border-radius: 12px; padding: 16px; margin-bottom: 14px; border: 1px solid #263357; }
+    .section-title { font-weight: 700; font-size: 1.05rem; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+
+    select, input[type="text"], input[type="number"] { padding: 9px 11px; border-radius: 8px; background: var(--bg); color: var(--text); border: 1px solid #38466e; font-size: 0.95rem; width: 100%; }
+
+    .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+    .status-label { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; text-align: center; }
+    .status-value { font-size: 1.45rem; font-weight: 700; text-align: center; }
+    .open { color: var(--green); } .closed { color: var(--red); } .unknown { color: var(--muted); }
+
+    .btn { border: none; border-radius: 8px; padding: 10px 14px; font-size: 0.9rem; font-weight: 700; cursor: pointer; transition: 0.15s; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-green { background: var(--green); color: #111; }
+    .btn-red { background: var(--red); color: #fff; }
+    .btn-blue { background: var(--accent); color: var(--text); border: 1px solid #36508c; }
+    .btn-sm { padding: 6px 10px; font-size: 0.8rem; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .checks-box { display: flex; flex-wrap: wrap; gap: 8px; background: var(--bg); padding: 10px; border-radius: 8px; border: 1px solid #2f3d63; margin: 8px 0; }
+    .check-item { display: flex; align-items: center; gap: 6px; background: var(--surface2); padding: 6px 10px; border-radius: 6px; font-size: 0.88rem; cursor: pointer; }
+
+    .esp-item { background: var(--surface2); border-radius: 10px; padding: 12px; margin-bottom: 10px; border: 1px solid #303f6b; }
+    .esp-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .badge { padding: 3px 8px; border-radius: 6px; font-size: 0.78rem; font-weight: 700; }
+    .badge-ok { background: rgba(78,204,163,0.18); color: var(--green); }
+    .badge-err { background: rgba(233,69,96,0.2); color: var(--red); }
+
+    .plate-table { width:100%; border-collapse:collapse; margin-top: 8px; }
+    .plate-table td { padding:8px; border-bottom:1px solid #293656; font-size: 0.92rem; }
+
+    #log { font-family: Consolas, monospace; font-size: 0.84rem; line-height: 1.5; max-height: 240px; overflow-y: auto; color: var(--muted); background: #0d111f; padding: 10px; border-radius: 8px; }
+    .log-entry.error { color: var(--red); } .log-entry.success { color: var(--green); } .log-entry.warn { color: var(--yellow); }
+
+    .side-panel .control-block { background: var(--surface); border-radius: 12px; padding: 14px; margin-bottom: 12px; border: 1px solid #263357; }
+    .control-title { font-weight: 700; font-size: 0.96rem; margin-bottom: 4px; color: var(--text); }
+    .control-desc { font-size: 0.8rem; color: var(--muted); margin-bottom: 10px; line-height: 1.35; }
+    .toggle-btn { width: 100%; padding: 11px; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 700; cursor: pointer; }
+    .toggle-on { background: var(--green); color: #111; }
+    .toggle-off { background: var(--red); color: #fff; }
+
+    .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: none; align-items: center; justify-content: center; z-index: 999; padding: 20px; }
+    .modal-box { background: var(--surface); border-radius: 12px; max-width: 900px; width: 100%; max-height: 85vh; display: flex; flex-direction: column; padding: 18px; border: 1px solid #3b4e82; }
+    .modal-pre { flex: 1; overflow: auto; background: #0b0e1a; padding: 12px; border-radius: 8px; font-family: Consolas, monospace; font-size: 0.82rem; color: #cfd8f0; white-space: pre-wrap; margin: 10px 0; }
+
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #fff; color: #111; padding: 10px 22px; border-radius: 8px; font-weight: bold; opacity: 0; transition: 0.25s; pointer-events: none; z-index: 1000;}
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <!-- ЛЕВАЯ ЧАСТЬ: ПРОСМОТР ПОТОКОВ, НАСТРОЙКА КАМЕР, ПРИВЯЗКА К ЕСП, УПРАВЛЕНИЕ КОНТРОЛЛЕРАМИ ЕСП -->
+    <div class="main-panel">
+
+      <!-- 1. ОКНО ПРОСМОТРА КАМЕР С ПЕРЕКЛЮЧЕНИЕМ ПОТОКОВ И ОТКЛЮЧЕНИЕМ ВИЗУАЛА -->
+      <div class="card">
+        <div class="section-title" style="flex-wrap:wrap; gap:10px;">
+          <div style="display:flex; align-items:center; gap:10px; flex:1;">
+            <span>🎥 Камера просмотра:</span>
+            <select id="view-camera-select" style="max-width:260px;" onchange="switchActiveCamera(this.value)"></select>
+            <strong id="anpr-camera" style="font-size:0.9rem; color:var(--red);">выключена</strong>
+          </div>
+          <button id="btn-preview-inline" class="btn btn-sm btn-blue" onclick="toggleSetting('preview_enabled')">👁 Визуал потока: ВКЛ</button>
+        </div>
+
+        <div style="position:relative; width:100%; aspect-ratio:16/9; background:#080d1b; border-radius:10px; overflow:hidden; display:flex; align-items:center; justify-content:center;">
+          <div id="camera-placeholder" style="color:var(--muted); position:absolute; z-index:1; text-align:center; padding:16px;">Видеопоток недоступен</div>
+          <img id="anpr-snapshot" style="width:100%; height:100%; object-fit:contain; position:relative; z-index:2; display:none;" draggable="false">
+        </div>
+      </div>
+
+      <!-- 2. СВОДКА РАСПОЗНАВАНИЯ -->
+      <div class="status-grid">
+        <div class="card" style="margin-bottom:0;">
+          <div class="status-label">Последний распознанный ГРЗ</div>
+          <div id="anpr-plate" class="status-value unknown">нет номера</div>
+          <div style="text-align:center; font-size:0.84rem; color:var(--muted); margin-top:6px;">
+            Камера: <strong id="anpr-cam-src" style="color:var(--text);">—</strong> | Пауза: <strong id="anpr-pause" style="color:var(--text);">нет</strong>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:0;">
+          <div class="status-label">Статус и причина решения</div>
+          <div id="anpr-reason" class="status-value unknown" style="font-size:1.15rem; margin-top:6px;">ожидание</div>
+        </div>
+      </div>
+
+      <!-- 3. УПРАВЛЕНИЕ КАМЕРАМИ (RTSP) И ПРИВЯЗКА К КОНТРОЛЛЕРАМ ЕСП -->
+      <div class="card">
+        <div class="section-title">
+          <span>📹 Управление камерами (RTSP) и привязка к ЕСП</span>
+          <button class="btn btn-sm btn-green" onclick="prepareNewCamera()">+ Подключить новую камеру</button>
+        </div>
+        <div style="font-size:0.83rem; color:var(--muted); margin-bottom:10px;">
+          Выберите камеру для редактирования её имени, RTSP-ссылки и укажите галочками, какие контроллеры ЕСП должны срабатывать от этой камеры:
+        </div>
+
+        <div style="margin-bottom:10px;">
+          <select id="edit-camera-select" onchange="selectCameraForEdit(this.value)"></select>
+        </div>
+
+        <input type="hidden" id="cam-id-input">
+        <div class="grid-2">
+          <div>
+            <label style="font-size:0.82rem; color:var(--muted);">Имя камеры (потока):</label>
+            <input type="text" id="cam-name-input" placeholder="Например: Въезд Север">
+          </div>
+          <div>
+            <label style="font-size:0.82rem; color:var(--muted);">RTSP-ссылка потока:</label>
+            <input type="text" id="cam-rtsp-input" placeholder="rtsp://admin:admin@192.168.0.229:554/live/main">
+          </div>
+        </div>
+
+        <label style="font-size:0.82rem; color:var(--muted);">Привязанные контроллеры ЕСП к этой камере (можно выбрать несколько):</label>
+        <div id="cam-links-box" class="checks-box"></div>
+
+        <div style="display:flex; gap:10px; margin-top:8px;">
+          <button class="btn btn-green" style="flex:1;" onclick="saveCameraForm()">💾 Сохранить камеру и привязку</button>
+          <button class="btn btn-red" onclick="deleteSelectedCamera()">🗑 Удалить камеру</button>
+        </div>
+      </div>
+
+      <!-- 4. МЕНЮ КОНТРОЛЛЕРОВ (ЕСП): РЕДАКТИРОВАНИЕ IP, ИМЕНИ И ВКЛ/ВЫКЛ ОТПРАВКИ СИГНАЛА -->
+      <div class="card">
+        <div class="section-title">
+          <span>🎛 Контроллеры ворот (ЕСП) и управление сигналами</span>
+          <button class="btn btn-sm btn-green" onclick="prepareNewGate()">+ Подключить новый ЕСП</button>
+        </div>
+        <div style="font-size:0.83rem; color:var(--muted); margin-bottom:10px;">
+          Каждый контроллер можно отдельно включить или выключить (блокирует отправку сигнала из программы), проверить кнопками START/STOP или изменить его имя и IP:
+        </div>
+
+        <div id="esp-controllers-list"></div>
+
+        <!-- Форма редактирования / создания контроллера ЕСП -->
+        <div style="background:var(--bg); padding:12px; border-radius:10px; border:1px solid #2f3d63; margin-top:12px;">
+          <div id="gate-form-title" style="font-weight:700; font-size:0.92rem; margin-bottom:8px; color:var(--green);">Редактирование / подключение контроллера ЕСП</div>
+          <input type="hidden" id="gate-id-input">
+          <div class="grid-2">
+            <div>
+              <label style="font-size:0.8rem; color:var(--muted);">Имя контроллера ЕСП:</label>
+              <input type="text" id="gate-name-input" placeholder="Ворота 1 (Въезд)">
+            </div>
+            <div>
+              <label style="font-size:0.8rem; color:var(--muted);">IP-адрес или HTTP URL:</label>
+              <input type="text" id="gate-url-input" placeholder="http://192.168.0.149">
+            </div>
+          </div>
+          <div style="display:flex; gap:10px; align-items:end;">
+            <div style="flex:1;">
+              <label style="font-size:0.8rem; color:var(--muted);">Токен (X-Token):</label>
+              <input type="text" id="gate-token-input" placeholder="123456" value="123456">
+            </div>
+            <button class="btn btn-green" onclick="saveGateForm()">💾 Сохранить контроллер ЕСП</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. БЕЛЫЙ СПИСОК НОМЕРОВ ДЛЯ ВЫБРАННОГО КОНТРОЛЛЕРА ЕСП -->
+      <div class="card">
+        <div class="section-title">
+          <span>🚗 Разрешённые номера (Белый список контроллера)</span>
+          <span id="plates-count" style="color:var(--muted);">0</span>
+        </div>
+        <div style="margin-bottom:10px;">
+          <label style="font-size:0.82rem; color:var(--muted);">Выберите контроллер ЕСП для редактирования его номеров:</label>
+          <select id="plate-gate-select" onchange="onSelectPlateGate(this.value)" style="margin-top:4px;"></select>
+        </div>
+        <form id="plate-form" style="display:flex; gap:10px; margin-bottom:10px;">
+          <input id="plate-input" type="text" maxlength="16" placeholder="Т644ММ (6 символов)" required>
+          <button type="submit" class="btn btn-green" style="white-space:nowrap;">+ Добавить номер</button>
+        </form>
+        <div id="plates-list"></div>
+      </div>
+
+      <!-- 6. ПОДРОБНЫЙ ЖУРНАЛ СОБЫТИЙ -->
+      <div class="card">
+        <div class="section-title">
+          <span>📋 Подробный журнал событий и причин блокировки</span>
+          <button class="btn btn-sm btn-blue" onclick="showRemoteLogsModal()">🔍 Читать полный лог в окне</button>
+        </div>
+        <div id="log"></div>
+      </div>
+    </div>
+
+    <!-- ПРАВАЯ ЧАСТЬ: СИСТЕМНЫЕ ПЕРЕКЛЮЧАТЕЛИ ДРУГ ПОД ДРУГОМ -->
+    <div class="side-panel">
+      <div class="control-block">
+        <div class="control-title">1. Работа всей программы</div>
+        <div class="control-desc">Полная остановка или запуск обработки камер, аналитики и отправки сигналов без закрытия окна.</div>
+        <button id="toggle-system" class="toggle-btn toggle-on" onclick="toggleSetting('system_enabled')">🟢 ПРОГРАММА: ВКЛЮЧЕНА</button>
+      </div>
+
+      <div class="control-block">
+        <div class="control-title">2. Отображение потока в окне</div>
+        <div class="control-desc">Отключает только картинку видео в интерфейсе для снижения нагрузки на ПК (распознавание на бэке продолжает работать).</div>
+        <button id="toggle-preview" class="toggle-btn toggle-on" onclick="toggleSetting('preview_enabled')">🟢 ВИЗУАЛ ПОТОКА: ВКЛ</button>
+      </div>
+
+      <div class="control-block">
+        <div class="control-title">3. Закрытие ворот по таймеру</div>
+        <div class="control-desc">Повторная отправка сигнала START на привод через N секунд после открытия по номеру.</div>
+        <button id="toggle-autoclose" class="toggle-btn toggle-off" onclick="toggleSetting('auto_close_enabled')">🔴 ТАЙМЕР ЗАКРЫТИЯ: ВЫКЛ</button>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+          <span style="font-size:0.85rem; color:var(--muted);">Сек:</span>
+          <input id="input-autoclose-sec" type="number" min="1" max="600" value="15" style="width:85px; text-align:center;">
+          <button class="btn btn-blue" style="flex:1;" onclick="saveTimerSec()">Сохранить</button>
+        </div>
+      </div>
+
+      <div class="control-block">
+        <div class="control-title">4. Защита от уезжающей машины</div>
+        <div class="control-desc">Анализ размера и вектора рамки номера. Блокирует открытие, если машина удаляется от ворот.</div>
+        <button id="toggle-departing" class="toggle-btn toggle-on" onclick="toggleSetting('departing_check_enabled')">🟢 ЗАЩИТА ОТ УЕЗДА: ВКЛ</button>
+      </div>
+
+      <div class="control-block">
+        <div class="control-title">5. Фильтр движения в кадре</div>
+        <div class="control-desc">Запускает нейросеть только при наличии движения в кадре для экономии ресурсов процессора.</div>
+        <button id="toggle-motion" class="toggle-btn toggle-on" onclick="toggleSetting('motion_filter_enabled')">🟢 ФИЛЬТР ДВИЖЕНИЯ: ВКЛ</button>
+      </div>
+
+      <div class="control-block">
+        <div class="control-title">6. Мониторинг и автоперезапуск (Watchdog)</div>
+        <div class="control-desc">Фоновый скрипт следит за программой 24/7 и автоматически запускает её снова, если она закрылась.</div>
+        <button id="toggle-watchdog" class="toggle-btn toggle-on" onclick="toggleSetting('watchdog_enabled')">🟢 МОНИТОРИНГ (WATCHDOG): ВКЛ</button>
+      </div>
+
+      <div class="control-block">
+        <div class="control-title">7. Автозапуск при старте системы</div>
+        <div class="control-desc">Автоматически запускать программу при включении или перезагрузке компьютера Windows.</div>
+        <button id="toggle-autostart" class="toggle-btn toggle-off" onclick="toggleSetting('autostart_enabled')">🔴 АВТОЗАПУСК WINDOWS: ВЫКЛ</button>
+      </div>
+
+      <div class="control-block">
+        <div class="control-title">8. Архив подробных логов</div>
+        <div class="control-desc">Открыть файл <code>gatecontrol.log</code> в Блокноте или прямо на экране телефона/браузера.</div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <button class="btn btn-blue" style="width:100%;" onclick="openLogsFile()">📄 ОТКРЫТЬ БЛОКНОТ С ЛОГАМИ</button>
+          <button class="btn btn-blue" style="width:100%;" onclick="showRemoteLogsModal()">📱 СМОТРЕТЬ ЛОГ В БРАУЗЕРЕ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модальное окно для чтения полного лог-файла с телефона или в окне -->
+  <div id="logs-modal" class="modal-bg">
+    <div class="modal-box">
+      <div class="section-title">
+        <span>Полный журнал gatecontrol.log (последние 150 строк)</span>
+        <button class="btn btn-sm btn-red" onclick="document.getElementById('logs-modal').style.display='none'">Закрыть</button>
+      </div>
+      <div id="modal-log-content" class="modal-pre">Загрузка...</div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const logEl = document.getElementById("log");
+    const toastEl = document.getElementById("toast");
+    const timerInput = document.getElementById("input-autoclose-sec");
+
+    let camerasData = {};
+    let gatesData = {};
+    let selectedEditCamId = null;
+    let selectedPlateGateId = null;
+    let lastAnprEventId = 0;
+    let serverOnline = true;
+    let cameraActive = false;
+    let timerInputFocused = false;
+    let uiInitialized = false;
+
+    let currentSettings = {
+      system_enabled: true,
+      preview_enabled: true,
+      active_camera_id: "cam_1",
+      auto_close_enabled: false,
+      auto_close_sec: 15,
+      departing_check_enabled: true,
+      motion_filter_enabled: true,
+      watchdog_enabled: true,
+      autostart_enabled: false
+    };
+
+    timerInput.addEventListener("focus", () => timerInputFocused = true);
+    timerInput.addEventListener("blur", () => timerInputFocused = false);
+
+    function showToast(text) {
+      toastEl.textContent = text;
+      toastEl.classList.add("show");
+      setTimeout(() => toastEl.classList.remove("show"), 2600);
+    }
+
+    function appendLog(text, kind = "", serverTime = null) {
+      const el = document.createElement("div");
+      el.className = "log-entry " + kind;
+      const t = serverTime || new Date().toLocaleTimeString("ru-RU");
+      el.textContent = `[${t}] ${text}`;
+      logEl.prepend(el);
+      if (logEl.children.length > 60) logEl.lastChild.remove();
+    }
+
+    function setBtnState(id, enabled, textOn, textOff) {
+      const el = document.getElementById(id);
+      el.className = "toggle-btn " + (enabled ? "toggle-on" : "toggle-off");
+      el.textContent = enabled ? textOn : textOff;
+    }
+
+    function renderSettings(s) {
+      currentSettings = s;
+      setBtnState("toggle-system", s.system_enabled, "🟢 ПРОГРАММА: ВКЛЮЧЕНА", "🔴 ПРОГРАММА: ОСТАНОВЛЕНА");
+      setBtnState("toggle-preview", s.preview_enabled, "🟢 ВИЗУАЛ ПОТОКА: ВКЛ", "🔴 ВИЗУАЛ ПОТОКА: ВЫКЛ (ТОЛЬКО БЭК)");
+      setBtnState("toggle-autoclose", s.auto_close_enabled, "🟢 ТАЙМЕР ЗАКРЫТИЯ: ВКЛ", "🔴 ТАЙМЕР ЗАКРЫТИЯ: ВЫКЛ");
+      setBtnState("toggle-departing", s.departing_check_enabled, "🟢 ЗАЩИТА ОТ УЕЗДА: ВКЛ", "🔴 ЗАЩИТА ОТ УЕЗДА: ВЫКЛ");
+      setBtnState("toggle-motion", s.motion_filter_enabled, "🟢 ФИЛЬТР ДВИЖЕНИЯ: ВКЛ", "🔴 ФИЛЬТР ДВИЖЕНИЯ: ВЫКЛ");
+      setBtnState("toggle-watchdog", s.watchdog_enabled, "🟢 МОНИТОРИНГ (WATCHDOG): ВКЛ", "🔴 МОНИТОРИНГ (WATCHDOG): ВЫКЛ");
+      setBtnState("toggle-autostart", s.autostart_enabled, "🟢 АВТОЗАПУСК WINDOWS: ВКЛ", "🔴 АВТОЗАПУСК WINDOWS: ВЫКЛ");
+
+      const inlinePrev = document.getElementById("btn-preview-inline");
+      inlinePrev.textContent = s.preview_enabled ? "👁 Визуал потока: ВКЛ" : "🙈 Визуал потока: СКРЫТ (бэк работает)";
+      inlinePrev.className = "btn btn-sm " + (s.preview_enabled ? "btn-green" : "btn-red");
+
+      if (!timerInputFocused) timerInput.value = s.auto_close_sec;
+    }
+
+    async function saveSettingsPayload(payload) {
+      try {
+        const res = await fetch("/api/settings", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Ошибка сохранения");
+        updateUI(data);
+        showToast("Настройки применены");
+      } catch (err) { showToast(err.message); }
+    }
+
+    function toggleSetting(key) {
+      const next = {...currentSettings, [key]: !currentSettings[key]};
+      next.auto_close_sec = parseFloat(timerInput.value) || 15;
+      saveSettingsPayload(next);
+    }
+
+    function saveTimerSec() {
+      const sec = Math.max(1, parseFloat(timerInput.value) || 15);
+      saveSettingsPayload({...currentSettings, auto_close_sec: sec});
+    }
+
+    async function switchActiveCamera(camId) {
+      if (!camId) return;
+      await fetch("/api/cameras/active", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({camera_id: camId})
+      });
+      showToast("Переключен просмотр камеры");
+    }
+
+    function renderCameraLinksCheckboxes(linkedIds = []) {
+      const box = document.getElementById("cam-links-box");
+      const gIds = Object.keys(gatesData);
+      if (gIds.length === 0) {
+        box.innerHTML = "<span style='color:var(--muted); font-size:0.85rem;'>Нет подключенных контроллеров ЕСП</span>";
+        return;
+      }
+      box.innerHTML = gIds.map(gid => {
+        const g = gatesData[gid];
+        const checked = linkedIds.includes(gid) ? "checked" : "";
+        return `<label class="check-item">
+          <input type="checkbox" class="cam-link-cb" value="${gid}" ${checked}>
+          <span>[${gid}] ${g.name}</span>
+        </label>`;
+      }).join("");
+    }
+
+    function selectCameraForEdit(camId) {
+      selectedEditCamId = camId;
+      const c = camerasData[camId];
+      if (!c) return;
+      document.getElementById("cam-id-input").value = c.id;
+      document.getElementById("cam-name-input").value = c.name || "";
+      document.getElementById("cam-rtsp-input").value = c.rtsp_url || "";
+      renderCameraLinksCheckboxes(c.linked_gates || []);
+    }
+
+    function prepareNewCamera() {
+      selectedEditCamId = "__new__";
+      document.getElementById("cam-id-input").value = "";
+      document.getElementById("cam-name-input").value = "Камера " + (Object.keys(camerasData).length + 1);
+      document.getElementById("cam-rtsp-input").value = "rtsp://admin:admin@192.168.0.229:554/live/main";
+      renderCameraLinksCheckboxes([]);
+      document.getElementById("cam-name-input").focus();
+      showToast("Введите данные новой камеры и нажмите Сохранить");
+    }
+
+    async function saveCameraForm() {
+      const id = document.getElementById("cam-id-input").value.trim();
+      const name = document.getElementById("cam-name-input").value.trim();
+      const rtsp_url = document.getElementById("cam-rtsp-input").value.trim();
+      if (!rtsp_url) { showToast("Укажите RTSP ссылку"); return; }
+
+      const linked_gates = Array.from(document.querySelectorAll(".cam-link-cb:checked")).map(cb => cb.value);
+      try {
+        const res = await fetch("/api/cameras", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({id, name, rtsp_url, linked_gates})
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Ошибка сохранения камеры");
+        selectedEditCamId = null;
+        updateUI(data);
+        showToast("Камера и привязка к ЕСП сохранены");
+      } catch (err) { showToast(err.message); }
+    }
+
+    async function deleteSelectedCamera() {
+      const id = document.getElementById("cam-id-input").value.trim();
+      if (!id) { showToast("Выберите существующую камеру"); return; }
+      if (Object.keys(camerasData).length <= 1) {
+        showToast("Нельзя удалить единственную камеру");
+        return;
+      }
+      try {
+        const res = await fetch(`/api/cameras/${encodeURIComponent(id)}`, { method: "DELETE" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Ошибка удаления");
+        selectedEditCamId = null;
+        updateUI(data);
+        showToast("Камера удалена");
+      } catch (err) { showToast(err.message); }
+    }
+
+    function renderEspControllers() {
+      const container = document.getElementById("esp-controllers-list");
+      const ids = Object.keys(gatesData);
+      if (ids.length === 0) {
+        container.innerHTML = "<div style='color:var(--muted);'>Контроллеры ЕСП ещё не добавлены</div>";
+        return;
+      }
+      container.innerHTML = ids.map(gid => {
+        const g = gatesData[gid];
+        const stateBadge = g.reachable
+          ? `<span class="badge badge-ok">${g.label}</span>`
+          : `<span class="badge badge-err">нет связи</span>`;
+        const sigBtnClass = g.enabled ? "btn-green" : "btn-red";
+        const sigBtnText = g.enabled ? "🟢 Отправка сигнала: ВКЛ" : "🔴 Отправка сигнала: ВЫКЛ";
+
+        return `<div class="esp-item">
+          <div class="esp-header">
+            <div>
+              <strong>[${gid}] ${g.name}</strong>
+              <span style="font-size:0.82rem; color:var(--muted); margin-left:6px;">(${g.url})</span>
+              ${stateBadge}
+            </div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+              <button class="btn btn-sm ${sigBtnClass}" onclick="toggleGateEnabled('${gid}')">${sigBtnText}</button>
+              <button class="btn btn-sm btn-blue" onclick="fillGateEdit('${gid}')">✏️ Изменить</button>
+              <button class="btn btn-sm btn-red" onclick="deleteGate('${gid}')">🗑</button>
+            </div>
+          </div>
+          ${g.last_error ? `<div style="font-size:0.78rem; color:var(--red); margin-bottom:6px;">Причина ошибки связи: ${g.last_error}</div>` : ""}
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-sm btn-green" style="flex:1;" onclick="gateCmd('${gid}', 'open')" ${(!currentSettings.system_enabled || !g.enabled) ? "disabled" : ""}>🟢 СИГНАЛ (START)</button>
+            <button class="btn btn-sm btn-red" style="flex:1;" onclick="gateCmd('${gid}', 'stop')" ${(!currentSettings.system_enabled || !g.enabled) ? "disabled" : ""}>🔴 СТОП (STOP)</button>
+            <button class="btn btn-sm btn-blue" onclick="gateCmd('${gid}', 'refresh')">🔄 Статус</button>
+          </div>
+        </div>`;
+      }).join("");
+    }
+
+    function fillGateEdit(gid) {
+      const g = gatesData[gid];
+      if (!g) return;
+      document.getElementById("gate-form-title").textContent = `Редактирование контроллера [${gid}] ${g.name}`;
+      document.getElementById("gate-id-input").value = gid;
+      document.getElementById("gate-name-input").value = g.name || "";
+      document.getElementById("gate-url-input").value = g.url || "";
+      document.getElementById("gate-token-input").value = g.token || "";
+      document.getElementById("gate-name-input").focus();
+    }
+
+    function prepareNewGate() {
+      document.getElementById("gate-form-title").textContent = "Подключение нового контроллера ЕСП";
+      document.getElementById("gate-id-input").value = "";
+      document.getElementById("gate-name-input").value = "Ворота " + (Object.keys(gatesData).length + 1);
+      document.getElementById("gate-url-input").value = "http://192.168.0.";
+      document.getElementById("gate-token-input").value = "123456";
+      document.getElementById("gate-url-input").focus();
+    }
+
+    async function saveGateForm() {
+      const id = document.getElementById("gate-id-input").value.trim();
+      const name = document.getElementById("gate-name-input").value.trim();
+      const url = document.getElementById("gate-url-input").value.trim();
+      const token = document.getElementById("gate-token-input").value.trim();
+      if (!url) { showToast("Укажите IP или URL контроллера ЕСП"); return; }
+      const enabled = (id && gatesData[id]) ? gatesData[id].enabled : true;
+
+      try {
+        const res = await fetch("/api/gates", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({id, name, url, token, enabled})
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Ошибка сохранения ЕСП");
+        updateUI(data);
+        if (selectedEditCamId && camerasData[selectedEditCamId]) {
+          renderCameraLinksCheckboxes(camerasData[selectedEditCamId].linked_gates || []);
+        }
+        showToast("Контроллер ЕСП сохранён");
+      } catch (err) { showToast(err.message); }
+    }
+
+    async function toggleGateEnabled(gid) {
+      try {
+        const res = await fetch(`/api/gates/${encodeURIComponent(gid)}/toggle`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: "{}"
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Ошибка");
+        updateUI(data);
+        showToast("Статус отправки сигнала обновлён");
+      } catch (err) { showToast(err.message); }
+    }
+
+    async function deleteGate(gid) {
+      try {
+        const res = await fetch(`/api/gates/${encodeURIComponent(gid)}`, { method: "DELETE" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Ошибка удаления");
+        updateUI(data);
+        showToast("Контроллер ЕСП удалён");
+      } catch (err) { showToast(err.message); }
+    }
+
+    function onSelectPlateGate(gid) {
+      selectedPlateGateId = gid;
+      renderPlatesList();
+    }
+
+    function renderPlatesList() {
+      const platesListEl = document.getElementById("plates-list");
+      if (!selectedPlateGateId || !gatesData[selectedPlateGateId]) {
+        platesListEl.innerHTML = "";
+        return;
+      }
+      const plates = gatesData[selectedPlateGateId].allowed_plates || [];
+      document.getElementById("plates-count").textContent = plates.length;
+      if (plates.length === 0) {
+        platesListEl.innerHTML = "<div style='color:var(--muted); text-align:center; padding:8px;'>Белый список этого контроллера пуст</div>";
+        return;
+      }
+      let html = '<table class="plate-table"><tbody>';
+      plates.forEach(p => {
+        html += `<tr><td><strong>${p}</strong></td><td style="text-align:right;"><button class="btn btn-sm btn-red" onclick="delPlate('${p}')">Удалить</button></td></tr>`;
+      });
+      platesListEl.innerHTML = html + '</tbody></table>';
+    }
+
+    async function addPlate(e) {
+      e.preventDefault();
+      const plate = document.getElementById("plate-input").value.trim();
+      if (!plate || !selectedPlateGateId) return;
+      try {
+        const res = await fetch(`/api/gates/${encodeURIComponent(selectedPlateGateId)}/plates`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({plate})
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Ошибка");
+        document.getElementById("plate-input").value = "";
+        updateUI(data);
+        showToast("Номер добавлен");
+      } catch (err) { showToast(err.message); appendLog(err.message, "error"); }
+    }
+
+    async function delPlate(plate) {
+      if (!selectedPlateGateId) return;
+      try {
+        const res = await fetch(`/api/gates/${encodeURIComponent(selectedPlateGateId)}/plates/${encodeURIComponent(plate)}`, { method: "DELETE" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Ошибка удаления");
+        updateUI(data);
+        showToast("Номер удалён");
+      } catch (err) { showToast(err.message); }
+    }
+
+    async function gateCmd(gid, cmd) {
+      try {
+        const res = await fetch(`/api/gates/${encodeURIComponent(gid)}/${cmd}`, { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Ошибка");
+        showToast(data.message || "Выполнено");
+        appendLog(data.message, "success");
+      } catch (err) {
+        showToast(err.message);
+        appendLog(err.message, "error");
+      }
+    }
+
+    async function openLogsFile() {
+      await fetch("/api/logs/open", { method: "POST" });
+      showToast("Открыт файл gatecontrol.log");
+    }
+
+    async function showRemoteLogsModal() {
+      document.getElementById("logs-modal").style.display = "flex";
+      const res = await fetch("/api/logs/tail", { cache: "no-store" });
+      const data = await res.json();
+      document.getElementById("modal-log-content").textContent = data.log || "Пусто";
+    }
+
+    function updateUI(data) {
+      if (data.settings) renderSettings(data.settings);
+
+      if (data.gates) {
+        const prevGateCount = Object.keys(gatesData).length;
+        gatesData = data.gates;
+        renderEspControllers();
+
+        const pSel = document.getElementById("plate-gate-select");
+        if (!selectedPlateGateId || !gatesData[selectedPlateGateId] || pSel.options.length !== Object.keys(gatesData).length) {
+          pSel.innerHTML = Object.keys(gatesData).map(gid => `<option value="${gid}">[${gid}] ${gatesData[gid].name}</option>`).join("");
+          if (!selectedPlateGateId || !gatesData[selectedPlateGateId]) {
+            selectedPlateGateId = Object.keys(gatesData)[0] || null;
+          }
+          if (selectedPlateGateId) pSel.value = selectedPlateGateId;
+        }
+        renderPlatesList();
+        if (prevGateCount === 0 && Object.keys(gatesData).length > 0 && !document.getElementById("gate-id-input").value) {
+          fillGateEdit(Object.keys(gatesData)[0]);
+        }
+      }
+
+      if (data.anpr) {
+        if (data.anpr.cameras) {
+          camerasData = data.anpr.cameras;
+          const viewSel = document.getElementById("view-camera-select");
+          const editSel = document.getElementById("edit-camera-select");
+          const camIds = Object.keys(camerasData);
+
+          if (viewSel.options.length !== camIds.length) {
+            viewSel.innerHTML = camIds.map(cid => `<option value="${cid}">[${cid}] ${camerasData[cid].name}</option>`).join("");
+            editSel.innerHTML = camIds.map(cid => `<option value="${cid}">[${cid}] ${camerasData[cid].name} (${camerasData[cid].rtsp_url})</option>`).join("");
+          }
+          if (data.anpr.active_camera_id) {
+            viewSel.value = data.anpr.active_camera_id;
+          }
+          if (!selectedEditCamId && camIds.length > 0) {
+            selectCameraForEdit(camIds[0]);
+            editSel.value = camIds[0];
+          }
+        }
+
+        document.getElementById("anpr-plate").textContent = data.anpr.last_plate_display || data.anpr.last_plate || "нет номера";
+        document.getElementById("anpr-reason").textContent = data.anpr.last_reason || "ожидание";
+        document.getElementById("anpr-cam-src").textContent = data.anpr.last_camera_name || "—";
+        document.getElementById("anpr-pause").textContent = data.anpr.pause_left_sec > 0 ? `${data.anpr.pause_left_sec} сек.` : "нет";
+
+        const isCamOk = data.anpr.camera === "connected";
+        const isPaused = data.anpr.camera === "paused";
+        const prevEn = currentSettings.preview_enabled;
+
+        document.getElementById("anpr-camera").textContent = isCamOk ? "в сети" : (isPaused ? "пауза (СТОП)" : "нет связи");
+        document.getElementById("anpr-camera").style.color = isCamOk ? "var(--green)" : "var(--red)";
+
+        const placeholder = document.getElementById("camera-placeholder");
+        const snapImg = document.getElementById("anpr-snapshot");
+
+        if (!prevEn) {
+          cameraActive = false;
+          placeholder.textContent = "Визуальное отображение потока отключено для снижения нагрузки (аналитика на бэке продолжает работать)";
+          placeholder.style.display = "block";
+          snapImg.style.display = "none";
+        } else if (isCamOk) {
+          cameraActive = true;
+          placeholder.style.display = "none";
+          snapImg.style.display = "block";
+        } else {
+          cameraActive = false;
+          placeholder.textContent = isPaused ? "Программа остановлена кнопкой СТОП" : "Видеопоток камеры недоступен (переподключение...)";
+          placeholder.style.display = "block";
+          snapImg.style.display = "none";
+        }
+
+        (data.anpr.events || []).filter(e => e.id > lastAnprEventId).sort((a,b)=>a.id - b.id).forEach(e => {
+          appendLog(e.text, e.kind, e.time);
+          lastAnprEventId = Math.max(lastAnprEventId, e.id);
+        });
+      }
+    }
+
+    document.getElementById("plate-form").addEventListener("submit", addPlate);
+
+    let isPolling = false;
+    let currentBlobUrl = null;
+
+    setInterval(async () => {
+      if (isPolling) return;
+      isPolling = true;
+      try {
+        const res = await fetch("/api/status", { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const d = await res.json();
+        if (!serverOnline) {
+          serverOnline = true;
+          appendLog("Связь с сервером восстановлена", "success");
+        }
+        updateUI(d);
+
+        if (cameraActive && currentSettings.preview_enabled) {
+          const imgRes = await fetch("/api/anpr/snapshot?cam_id=" + encodeURIComponent(currentSettings.active_camera_id || ""), { cache: "no-store" });
+          if (imgRes.ok) {
+            const blob = await imgRes.blob();
+            const nextUrl = URL.createObjectURL(blob);
+            document.getElementById("anpr-snapshot").src = nextUrl;
+            if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+            currentBlobUrl = nextUrl;
+          }
+        }
+      } catch (e) {
+        if (serverOnline) {
+          serverOnline = false;
+          appendLog("Сервер не отвечает", "error");
+        }
+      } finally {
+        isPolling = false;
+      }
+    }, 1000);
+  </script>
+</body>
+</html>

@@ -1,2 +1,0 @@
-customtkinter>=5.2.2
-pysnmp>=7.1.28
