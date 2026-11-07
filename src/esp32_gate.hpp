@@ -167,8 +167,12 @@ public:
             std::string state = reachable ? device_[gid].value("gate_status", "") : "";
             std::string label = "неизвестно";
             if (!reachable) label = "нет связи";
-            else if (state == "OPEN") label = "открыты";
-            else if (state == "NOT_OPEN") label = "закрыты или закрываются";
+            else if (state == "OPENED") label = "открыты";
+            else if (state == "CLOSED") label = "закрыты";
+            else if (state == "MOVING") label = "в движении";
+            else if (state == "SENSOR_ERROR") label = "ошибка датчиков";
+            else if (state == "OPEN") label = "открыты"; // legacy support
+            else if (state == "NOT_OPEN") label = "закрыты или закрываются"; // legacy support
 
             result[gid] = {
                 {"id", gid},

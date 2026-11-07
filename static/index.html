@@ -38,6 +38,7 @@
     .badge { padding: 3px 8px; border-radius: 6px; font-size: 0.78rem; font-weight: 700; }
     .badge-ok { background: rgba(78,204,163,0.18); color: var(--green); }
     .badge-err { background: rgba(233,69,96,0.2); color: var(--red); }
+    .badge-warn { background: rgba(245,166,35,0.2); color: var(--yellow); }
 
     .plate-table { width:100%; border-collapse:collapse; margin-top: 8px; }
     .plate-table td { padding:8px; border-bottom:1px solid #293656; font-size: 0.92rem; }
@@ -455,8 +456,15 @@
       }
       container.innerHTML = ids.map(gid => {
         const g = gatesData[gid];
+        let badgeClass = "badge-ok";
+        if (!g.reachable || g.state === "SENSOR_ERROR") {
+          badgeClass = "badge-err";
+        } else if (g.state === "MOVING") {
+          badgeClass = "badge-warn";
+        }
+
         const stateBadge = g.reachable
-          ? `<span class="badge badge-ok">${g.label}</span>`
+          ? `<span class="badge ${badgeClass}">${g.label}</span>`
           : `<span class="badge badge-err">нет связи</span>`;
         const sigBtnClass = g.enabled ? "btn-green" : "btn-red";
         const sigBtnText = g.enabled ? "🟢 Отправка сигнала: ВКЛ" : "🔴 Отправка сигнала: ВЫКЛ";
