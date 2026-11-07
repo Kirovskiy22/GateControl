@@ -4,21 +4,21 @@
 const char* ssid = "YOUR_WIFI_SSID";
 const char* password = "YOUR_WIFI_PASSWORD";
 
-// Выбираем GPIO 22 и 23 (поддерживают INPUT_PULLUP, безопасны для датчиков)
-const int PIN_SENSOR_OPENED = 22;
-const int PIN_SENSOR_CLOSED = 23;
+// Выбираем GPIO 34 и 35 (работают только на вход, требуют внешних подтягивающих резисторов к 3.3V)
+const int PIN_SENSOR_OPENED = 34;
+const int PIN_SENSOR_CLOSED = 35;
 
 // Пин для управления реле
-const int PIN_RELAY = 32;
+const int PIN_RELAY = 4;
 
 WebServer server(80);
 
 void setup() {
   Serial.begin(115200);
 
-  // Настраиваем пины датчиков на вход со встроенной подтяжкой к 3.3В
-  pinMode(PIN_SENSOR_OPENED, INPUT_PULLUP);
-  pinMode(PIN_SENSOR_CLOSED, INPUT_PULLUP);
+  // Настраиваем пины датчиков на вход. Требуются внешние подтягивающие резисторы 10кОм к 3.3В
+  pinMode(PIN_SENSOR_OPENED, INPUT);
+  pinMode(PIN_SENSOR_CLOSED, INPUT);
 
   // Настраиваем пин реле
   pinMode(PIN_RELAY, OUTPUT);
@@ -33,7 +33,7 @@ void setup() {
 
   server.on("/status", HTTP_GET, []() {
     // Считываем значения пинов.
-    // Поскольку у нас подтяжка (INPUT_PULLUP), замыкание на землю (GND) даст LOW.
+    // Поскольку у нас внешняя подтяжка к 3.3В, замыкание датчика на землю (GND) даст LOW.
     // Если датчик сработал (ворота дошли до него) - он замыкает цепь, и мы читаем LOW (0).
     // Если датчик не сработал - читаем HIGH (1).
     bool is_opened = (digitalRead(PIN_SENSOR_OPENED) == LOW);
